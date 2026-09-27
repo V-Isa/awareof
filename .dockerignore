@@ -1,0 +1,15 @@
+# Keep local metadata and generated artifacts out of the integration-test context.
+/.git
+/.agents
+/.cache
+/.idea
+/.serena
+.env
+.env.*
+!.env.example
+/awareof
+*.test
+*.out
+coverage.*
+.coverprofile
+profile.cov
