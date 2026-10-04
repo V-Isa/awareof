@@ -1,6 +1,8 @@
 package typescript
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -48,16 +50,17 @@ func TestReadReferencesFailures(t *testing.T) {
 		config  string
 		prepare func(*testing.T, string)
 		want    string
+		wantErr error
 	}{
 		{name: "malformed", config: `{"references":[`, want: "parse"},
 		{name: "multiple values", config: `{ } { }`, want: "multiple JSON values"},
 		{name: "empty path", config: `{"references":[{"path":""}]}`, want: "invalid empty"},
 		{name: "parent escape", config: `{"references":[{"path":"../outside.json"}]}`, want: "leaves the repository"},
 		{name: "absolute path", config: `{"references":[{"path":"/outside.json"}]}`, want: "leaves the repository"},
-		{name: "missing", config: `{"references":[{"path":"missing"}]}`, want: "no such file"},
+		{name: "missing", config: `{"references":[{"path":"missing"}]}`, wantErr: fs.ErrNotExist},
 		{name: "no implicit json extension", config: `{"references":[{"path":"plain"}]}`, prepare: func(t *testing.T, root string) {
 			writeTestFile(t, root, "plain.json", `{}`, 0o600)
-		}, want: "no such file"},
+		}, wantErr: fs.ErrNotExist},
 		{name: "non-regular", config: `{"references":[{"path":"pipe.json"}]}`, prepare: func(t *testing.T, root string) {
 			if runtime.GOOS == "windows" {
 				t.Skip("named pipes differ on Windows")
@@ -75,7 +78,10 @@ func TestReadReferencesFailures(t *testing.T) {
 				test.prepare(t, root)
 			}
 			_, err := readReferences(root, "tsconfig.json")
-			if err == nil || !strings.Contains(err.Error(), test.want) {
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("readReferences() error = %v, want errors.Is(_, %v)", err, test.wantErr)
+			}
+			if test.wantErr == nil && (err == nil || !strings.Contains(err.Error(), test.want)) {
 				t.Fatalf("readReferences() error = %v, want containing %q", err, test.want)
 			}
 		})
