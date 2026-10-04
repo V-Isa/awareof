@@ -95,6 +95,23 @@ func TestRunnerRun(t *testing.T) {
 		}
 	})
 
+	t.Run("provider-derived entry point", func(t *testing.T) {
+		entryPoint := helperExecutable(t)
+		resolver := &entryPointResolver{path: entryPoint}
+		response, err := (Runner{Resolver: resolver}).Run(context.Background(), Request{
+			Root:       t.TempDir(),
+			Tool:       "compiler",
+			EntryPoint: entryPoint,
+			Args:       []string{"-test.run=TestHelperProcess", "--", "success"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(response.Stdout) != "ok" || resolver.requested != entryPoint {
+			t.Fatalf("response = %+v, requested = %q; want successful exact entry point", response, resolver.requested)
+		}
+	})
+
 	t.Run("repository target rejected when external is required", func(t *testing.T) {
 		_, err := (Runner{Resolver: mappedResolver{
 			"script": {Tool: "script", Path: "repository/script", Origin: RepositoryOrigin},
@@ -193,6 +210,15 @@ func TestRunnerRejectsInvalidRequest(t *testing.T) {
 			}
 		})
 	}
+	t.Run("entry point unsupported by resolver", func(t *testing.T) {
+		t.Parallel()
+		_, err := (Runner{Resolver: fixedResolver{path: helperExecutable(t)}}).Run(context.Background(), Request{
+			Root: t.TempDir(), Tool: "test", EntryPoint: "/compiler",
+		})
+		if err == nil || !strings.Contains(err.Error(), "does not support an explicit entry point") {
+			t.Fatalf("Run() error = %v, want unsupported explicit entry point", err)
+		}
+	})
 }
 
 func TestMergeEnvironment(t *testing.T) {
@@ -346,6 +372,20 @@ type fixedResolver struct {
 }
 
 type mappedResolver map[ToolID]Target
+
+type entryPointResolver struct {
+	path      string
+	requested string
+}
+
+func (r *entryPointResolver) Resolve(_ string, tool ToolID) (Target, error) {
+	return Target{Tool: tool, Path: r.path, Origin: ExternalOrigin}, nil
+}
+
+func (r *entryPointResolver) ResolveAt(_ string, tool ToolID, path string) (Target, error) {
+	r.requested = path
+	return Target{Tool: tool, Path: r.path, Origin: ExternalOrigin}, nil
+}
 
 func (r mappedResolver) Resolve(_ string, tool ToolID) (Target, error) {
 	target, ok := r[tool]

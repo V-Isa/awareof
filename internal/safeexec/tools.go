@@ -27,16 +27,17 @@ const (
 
 var approvalMutationMu sync.Mutex
 
-// ToolID is the stable identity of an executable used by providers.
+// ToolID is the stable identity of a native entry point used by providers.
 type ToolID string
 
-// Tool declares one executable that awareof knows how to use safely.
+// Tool declares one native entry point that awareof knows how to use safely.
 type Tool struct {
-	ID      ToolID
-	Command string
+	ID                ToolID
+	Command           string
+	SelectionRequired bool
 }
 
-// Origin identifies who controls the resolved executable path.
+// Origin identifies who controls the resolved entry-point path.
 type Origin string
 
 const (
@@ -44,7 +45,7 @@ const (
 	RepositoryOrigin Origin = "repository"
 )
 
-// Target is the exact executable identity considered for execution.
+// Target is the exact entry-point identity considered for execution.
 type Target struct {
 	Tool       ToolID `json:"tool"`
 	Path       string `json:"path"`
@@ -60,6 +61,13 @@ type Status struct {
 	Target  Target
 	State   ApprovalState
 	Problem *UnavailableError
+}
+
+// Selection identifies either a tool's default entry point or one exact path
+// derived by a provider without executing it.
+type Selection struct {
+	Tool ToolID
+	Path string
 }
 
 // ApprovalState is the normalized user-facing state of a tool approval.
@@ -113,6 +121,10 @@ type ApprovalStore interface {
 	Remove(string, ToolID) (int, error)
 }
 
+type approvalCatalog interface {
+	Targets(string, ToolID) ([]Target, error)
+}
+
 // UnavailableApprovalStore preserves parser-only operation when the platform
 // approval location cannot be resolved. Native execution remains unavailable.
 type UnavailableApprovalStore struct {
@@ -138,7 +150,7 @@ func (s UnavailableApprovalStore) err() error {
 	return fmt.Errorf("tool approval storage is unavailable: %w", s.Cause)
 }
 
-// FileApprovalStore stores exact executable identities in one JSON document.
+// FileApprovalStore stores exact entry-point identities in one JSON document.
 type FileApprovalStore struct {
 	Path string
 }
@@ -204,6 +216,34 @@ func (s FileApprovalStore) Remove(root string, tool ToolID) (int, error) {
 		return 0, err
 	}
 	return removed, nil
+}
+
+// Targets returns approvals that may apply to one tool in this repository.
+// Callers must rediscover each path before treating it as approved.
+func (s FileApprovalStore) Targets(root string, tool ToolID) ([]Target, error) {
+	document, err := s.load(root)
+	if err != nil {
+		return nil, err
+	}
+	rootAbsolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository root: %w", err)
+	}
+	rootResolved, err := filepath.EvalSymlinks(rootAbsolute)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository root symlinks: %w", err)
+	}
+	targets := make([]Target, 0)
+	for _, approval := range document.Approvals {
+		if approval.Tool != tool {
+			continue
+		}
+		if approval.Origin == RepositoryOrigin && approval.Repository != rootResolved {
+			continue
+		}
+		targets = append(targets, approval)
+	}
+	return targets, nil
 }
 
 func (s FileApprovalStore) mutate(root string, change func(*approvalDocument) bool) (err error) {
@@ -433,7 +473,7 @@ func (s FileApprovalStore) write(root string, document approvalDocument) error {
 	return nil
 }
 
-// Manager discovers exact executable identities and enforces approval.
+// Manager discovers exact entry-point identities and enforces approval.
 type Manager struct {
 	tools     map[ToolID]Tool
 	overrides map[ToolID]string
@@ -461,7 +501,7 @@ func NewManager(tools []Tool, store ApprovalStore) (*Manager, error) {
 	return manager, nil
 }
 
-// SetOverrides replaces executable selections for the current invocation.
+// SetOverrides replaces entry-point selections for the current invocation.
 func (m *Manager) SetOverrides(overrides map[ToolID]string) error {
 	if m == nil {
 		return errors.New("tool manager is nil")
@@ -472,7 +512,7 @@ func (m *Manager) SetOverrides(overrides map[ToolID]string) error {
 			return fmt.Errorf("unknown tool %q", id)
 		}
 		if path == "" {
-			return fmt.Errorf("tool %q executable path is empty", id)
+			return fmt.Errorf("tool %q entry-point path is empty", id)
 		}
 		selected[id] = path
 	}
@@ -480,12 +520,52 @@ func (m *Manager) SetOverrides(overrides map[ToolID]string) error {
 	return nil
 }
 
-// Resolve returns an approved executable or a safe non-execution error.
+// Resolve returns an approved entry point or a safe non-execution error.
 func (m *Manager) Resolve(root string, id ToolID) (Target, error) {
 	target, err := m.Discover(root, id)
+	return m.resolveTarget(target, err)
+}
+
+// ResolveAt returns one approved provider-derived entry point.
+func (m *Manager) ResolveAt(root string, id ToolID, path string) (Target, error) {
+	target, err := m.DiscoverAt(root, id, path)
+	return m.resolveTarget(target, err)
+}
+
+// ApprovedTargets returns current approved identities for one tool. Stale,
+// missing, or changed approval records are not returned.
+func (m *Manager) ApprovedTargets(root string, id ToolID) ([]Target, error) {
+	if m == nil {
+		return nil, errors.New("tool manager is nil")
+	}
+	if _, exists := m.tools[id]; !exists {
+		return nil, fmt.Errorf("unknown tool %q", id)
+	}
+	catalog, ok := m.store.(approvalCatalog)
+	if !ok {
+		return []Target{}, nil
+	}
+	stored, err := catalog.Targets(root, id)
+	if err != nil {
+		return nil, fmt.Errorf("list tool %q approvals: %w", id, err)
+	}
+	targets := make([]Target, 0, len(stored))
+	for _, approval := range stored {
+		current, err := m.DiscoverAt(root, id, approval.Path)
+		if err != nil || !sameApproval(current, approval) {
+			continue
+		}
+		targets = append(targets, current)
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Path < targets[j].Path })
+	return targets, nil
+}
+
+func (m *Manager) resolveTarget(target Target, err error) (Target, error) {
 	if err != nil {
 		return Target{}, err
 	}
+	id := target.Tool
 	approved, err := m.store.Approved(target)
 	if err != nil {
 		return Target{}, &UnavailableError{
@@ -506,7 +586,7 @@ func (m *Manager) Resolve(root string, id ToolID) (Target, error) {
 			Tool:     id,
 			Code:     "tool/not-approved",
 			Summary:  fmt.Sprintf("tool %q is not approved", id),
-			Evidence: fmt.Sprintf("resolved executable %q has sha256 %s", target.Path, target.SHA256),
+			Evidence: fmt.Sprintf("resolved entry point %q has sha256 %s", target.Path, target.SHA256),
 			Action:   action,
 		}
 	}
@@ -523,13 +603,47 @@ func (m *Manager) Discover(root string, id ToolID) (Target, error) {
 		return Target{}, fmt.Errorf("unknown tool %q", id)
 	}
 	candidate := tool.Command
+	_, overridden := m.overrides[id]
+	if tool.SelectionRequired && !overridden {
+		return Target{}, &UnavailableError{
+			Tool:    id,
+			Code:    "tool/selection-required",
+			Summary: fmt.Sprintf("tool %q requires an explicit entry-point selection", id),
+			Action:  fmt.Sprintf("select it with --tool %s=/absolute/path", id),
+		}
+	}
 	if override, ok := m.overrides[id]; ok {
 		candidate = override
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(root, candidate)
 		}
 	}
-	path, err := exec.LookPath(candidate)
+	return m.discover(root, id, candidate, !overridden)
+}
+
+// DiscoverAt identifies one provider-derived entry point without executing it.
+func (m *Manager) DiscoverAt(root string, id ToolID, candidate string) (Target, error) {
+	if m == nil {
+		return Target{}, errors.New("tool manager is nil")
+	}
+	if _, exists := m.tools[id]; !exists {
+		return Target{}, fmt.Errorf("unknown tool %q", id)
+	}
+	if candidate == "" {
+		return Target{}, fmt.Errorf("tool %q entry-point path is empty", id)
+	}
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	return m.discover(root, id, candidate, false)
+}
+
+func (m *Manager) discover(root string, id ToolID, candidate string, usePath bool) (Target, error) {
+	path := candidate
+	var err error
+	if usePath {
+		path, err = exec.LookPath(candidate)
+	}
 	if err != nil {
 		return Target{}, &UnavailableError{
 			Tool:     id,
@@ -551,7 +665,7 @@ func (m *Manager) Discover(root string, id ToolID) (Target, error) {
 			Code:     "tool/unresolvable",
 			Summary:  fmt.Sprintf("tool %q cannot be resolved safely", id),
 			Evidence: err.Error(),
-			Action:   "repair or select a valid executable, then retry",
+			Action:   "repair or select a valid entry point, then retry",
 			cause:    err,
 		}
 	}
@@ -563,9 +677,9 @@ func (m *Manager) Discover(root string, id ToolID) (Target, error) {
 		return Target{}, &UnavailableError{
 			Tool:     id,
 			Code:     "tool/not-regular",
-			Summary:  fmt.Sprintf("tool %q is not a regular file", id),
+			Summary:  fmt.Sprintf("tool %q entry point is not a regular file", id),
 			Evidence: fmt.Sprintf("resolved path is %q", path),
-			Action:   "select a regular executable file, then retry",
+			Action:   "select a regular entry-point file, then retry",
 		}
 	}
 	digest, err := fileSHA256(path)
@@ -575,7 +689,7 @@ func (m *Manager) Discover(root string, id ToolID) (Target, error) {
 			Code:     "tool/unreadable",
 			Summary:  fmt.Sprintf("tool %q cannot be identified safely", id),
 			Evidence: err.Error(),
-			Action:   "repair or select a readable executable, then retry",
+			Action:   "repair or select a readable entry point, then retry",
 			cause:    err,
 		}
 	}
@@ -615,9 +729,9 @@ func (m *Manager) Approve(root string, id ToolID) (Target, error) {
 
 // ApproveTarget approves a previously discovered identity only when discovery
 // still produces that exact target. Setup uses this to bind confirmation to
-// the executable identity shown to the user.
+// the entry-point identity shown to the user.
 func (m *Manager) ApproveTarget(root string, expected Target) (Target, error) {
-	target, err := m.Discover(root, expected.Tool)
+	target, err := m.DiscoverAt(root, expected.Tool, expected.Path)
 	if err != nil {
 		return Target{}, err
 	}
@@ -626,7 +740,7 @@ func (m *Manager) ApproveTarget(root string, expected Target) (Target, error) {
 			Tool:     expected.Tool,
 			Code:     "tool/identity-changed",
 			Summary:  fmt.Sprintf("tool %q changed during setup", expected.Tool),
-			Evidence: fmt.Sprintf("the displayed executable identity no longer matches %q", target.Path),
+			Evidence: fmt.Sprintf("the displayed entry-point identity no longer matches %q", target.Path),
 			Action:   "review the new identity and run awareof --setup again",
 		}
 	}
@@ -696,6 +810,55 @@ func (m *Manager) StatusesFor(root string, requested []ToolID) []Status {
 	return statuses
 }
 
+// StatusesForSelections reports approval for default or provider-derived entry points.
+func (m *Manager) StatusesForSelections(root string, requested []Selection) []Status {
+	unique := make(map[Selection]struct{}, len(requested))
+	for _, selection := range requested {
+		unique[selection] = struct{}{}
+	}
+	selections := make([]Selection, 0, len(unique))
+	for selection := range unique {
+		selections = append(selections, selection)
+	}
+	sort.Slice(selections, func(i, j int) bool {
+		if selections[i].Tool != selections[j].Tool {
+			return selections[i].Tool < selections[j].Tool
+		}
+		return selections[i].Path < selections[j].Path
+	})
+	statuses := make([]Status, 0, len(selections))
+	for _, selection := range selections {
+		var target Target
+		var err error
+		if selection.Path == "" {
+			target, err = m.Discover(root, selection.Tool)
+		} else {
+			target, err = m.DiscoverAt(root, selection.Tool, selection.Path)
+		}
+		if err != nil {
+			problem, ok := AsUnavailable(err)
+			if !ok {
+				problem = &UnavailableError{Tool: selection.Tool, Code: "tool/discovery-failed", Summary: fmt.Sprintf("cannot inspect tool %q", selection.Tool), Evidence: err.Error()}
+			}
+			statuses = append(statuses, Status{Tool: selection.Tool, State: UnavailableState, Problem: problem})
+			continue
+		}
+		approved, err := m.store.Approved(target)
+		if err != nil {
+			statuses = append(statuses, Status{Tool: selection.Tool, Target: target, State: UnavailableState, Problem: &UnavailableError{
+				Tool: selection.Tool, Code: "tool/approval-unavailable", Summary: fmt.Sprintf("cannot verify approval for tool %q", selection.Tool), Evidence: err.Error(),
+			}})
+			continue
+		}
+		state := NotApprovedState
+		if approved {
+			state = ApprovedState
+		}
+		statuses = append(statuses, Status{Tool: selection.Tool, Target: target, State: state})
+	}
+	return statuses
+}
+
 func validateTool(tool Tool) error {
 	if tool.ID == "" {
 		return errors.New("tool id is empty")
@@ -703,7 +866,10 @@ func validateTool(tool Tool) error {
 	if !vocabulary.ValidIdentifier(string(tool.ID)) {
 		return fmt.Errorf("invalid tool id %q", tool.ID)
 	}
-	if tool.Command == "" {
+	if tool.SelectionRequired && tool.Command != "" {
+		return fmt.Errorf("tool %q cannot have both a default command and required selection", tool.ID)
+	}
+	if !tool.SelectionRequired && tool.Command == "" {
 		return fmt.Errorf("tool %q command is empty", tool.ID)
 	}
 	return nil
@@ -714,7 +880,7 @@ func validateApproval(approval Target) error {
 		return err
 	}
 	if !filepath.IsAbs(approval.Path) {
-		return errors.New("executable path is not absolute")
+		return errors.New("entry-point path is not absolute")
 	}
 	if len(approval.SHA256) != sha256.Size*2 {
 		return errors.New("sha256 digest has invalid length")
@@ -732,26 +898,26 @@ func validateApproval(approval Target) error {
 			return errors.New("repository approval has no absolute repository")
 		}
 		if !pathutil.Within(approval.Repository, approval.Path) {
-			return errors.New("repository approval executable is outside its repository")
+			return errors.New("repository approval entry point is outside its repository")
 		}
 	default:
-		return fmt.Errorf("invalid executable origin %q", approval.Origin)
+		return fmt.Errorf("invalid entry-point origin %q", approval.Origin)
 	}
 	return nil
 }
 
 func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path) //nolint:gosec // path is the exact executable selected for identity verification
+	file, err := os.Open(path) //nolint:gosec // path is the exact entry point selected for identity verification
 	if err != nil {
-		return "", fmt.Errorf("open executable: %w", err)
+		return "", fmt.Errorf("open entry point: %w", err)
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		_ = file.Close()
-		return "", fmt.Errorf("hash executable: %w", err)
+		return "", fmt.Errorf("hash entry point: %w", err)
 	}
 	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close executable: %w", err)
+		return "", fmt.Errorf("close entry point: %w", err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

@@ -30,12 +30,13 @@ var loaderEnvironment = []string{
 }
 
 // Request is one audited, argument-vector command invocation. Root identifies
-// the inspected repository for executable approval. Dir optionally selects a
+// the inspected repository for entry-point approval. Dir optionally selects a
 // separate provider-controlled working directory.
 type Request struct {
 	Root         string
 	Dir          string
 	Tool         ToolID
+	EntryPoint   string
 	Interpreter  ToolID
 	ExternalOnly bool
 	Args         []string
@@ -80,7 +81,19 @@ func (r Runner) Run(ctx context.Context, request Request) (Response, error) {
 		return Response{}, errors.New("tool resolver is nil")
 	}
 
-	target, err := r.Resolver.Resolve(request.Root, request.Tool)
+	var target Target
+	var err error
+	if request.EntryPoint == "" {
+		target, err = r.Resolver.Resolve(request.Root, request.Tool)
+	} else {
+		resolver, ok := r.Resolver.(interface {
+			ResolveAt(string, ToolID, string) (Target, error)
+		})
+		if !ok {
+			return Response{}, errors.New("tool resolver does not support an explicit entry point")
+		}
+		target, err = resolver.ResolveAt(request.Root, request.Tool, request.EntryPoint)
+	}
 	if err != nil {
 		return Response{}, err
 	}
@@ -190,7 +203,7 @@ func requireExternalTarget(target Target) error {
 		Tool:     target.Tool,
 		Code:     "tool/repository-unsupported",
 		Summary:  fmt.Sprintf("tool %q cannot be used from the inspected repository for this operation", target.Tool),
-		Evidence: fmt.Sprintf("resolved executable is %q", target.Path),
+		Evidence: fmt.Sprintf("resolved entry point is %q", target.Path),
 		Action:   "select and approve an installation outside the inspected repository",
 	}
 }

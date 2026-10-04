@@ -20,15 +20,15 @@ Every result has an explanation:
 - `evidence`: optional supporting fact;
 - `action`: optional safe next step.
 
-Every result also records its provenance. `tool` is a registered native executable ID. `reference` identifies a parser, library, or modeled specification:
+Every result also records its provenance. `tool` is a registered native entry-point ID. `reference` identifies a parser, library, or modeled specification:
 
 - `safe-native`: established by an approved native executable through a provider-owned command plan;
 - `safe-parser`: established without executing a provider tool, using a safe parser or reference implementation;
-- `unavailable`: not evaluated because the required safe mechanism was unavailable or not approved.
+- `unavailable`: the provider could not establish the effective result with the required safe mechanism, including when that mechanism was unavailable, unapproved, or failed safely.
 
 ## Provider and instance
 
-A provider represents one path-oriented system, such as Git or Docker. An instance is one independently evaluated scope within that system, such as one Docker build context or one TypeScript project.
+A provider represents one path-oriented system, such as Git or Docker. An instance is one independently evaluated scope within that system, such as one Docker build context or one npm package.
 
 Provider and native-tool IDs are stable lowercase ASCII identifiers. They start with a letter and may contain digits and internal hyphens.
 
@@ -55,9 +55,9 @@ An operational error means the command could not complete the requested operatio
 ## Native-tool terms
 
 - **registered**: `awareof` contains a provider-owned definition for the tool and its fixed invocation plan.
-- **selected**: a command name or explicit `--tool ID=PATH` identifies the executable candidate for this invocation.
-- **available**: the selected candidate resolves to an executable regular file.
-- **approved**: the user accepted the exact executable identity recorded by `awareof`.
+- **selected**: a command name or explicit `--tool ID=PATH` identifies the entry-point candidate for this invocation.
+- **available**: the selected candidate resolves to a regular entry-point file.
+- **approved**: the user accepted the exact entry-point identity recorded by `awareof`.
 - **executed**: an approved executable was started without a shell, using a provider-owned argument vector and hardened environment.
 
 Selection is not approval. Detection is not execution. Approval is not a sandbox or an operating-system capability restriction. `awareof` uses an approval only for the provider's fixed operations. Repository configuration cannot supply arbitrary commands.

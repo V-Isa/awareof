@@ -68,6 +68,33 @@ func TestManagerApprovalLifecycle(t *testing.T) {
 	}
 }
 
+func TestManagerExplicitOverrideMayBeAnInterpretedFile(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	script := filepath.Join(t.TempDir(), "compiler.js")
+	if err := os.WriteFile(script, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager([]Tool{{ID: "test", Command: "missing"}}, &fakeApprovalStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetOverrides(map[ToolID]string{"test": script}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := manager.Discover(repository, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Path != resolved || target.Origin != ExternalOrigin {
+		t.Fatalf("Discover() = %+v, want external interpreted file %q", target, resolved)
+	}
+}
+
 func TestManagerStatusesDoesNotExecuteTool(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -184,6 +211,7 @@ func TestManagerDiscoveryAndConfigurationFailures(t *testing.T) {
 		{name: "invalid id", tools: []Tool{{ID: "Test", Command: "test"}}, want: "invalid tool id"},
 		{name: "invalid leading digit", tools: []Tool{{ID: "1test", Command: "test"}}, want: "invalid tool id"},
 		{name: "empty command", tools: []Tool{{ID: "test"}}, want: "command is empty"},
+		{name: "ambiguous explicit selection", tools: []Tool{{ID: "test", Command: "test", SelectionRequired: true}}, want: "both a default command and required selection"},
 		{name: "duplicate", tools: []Tool{{ID: "test", Command: "one"}, {ID: "test", Command: "two"}}, want: "duplicate tool"},
 	}
 	for _, test := range tests {
@@ -220,6 +248,54 @@ func TestManagerDiscoveryAndConfigurationFailures(t *testing.T) {
 	statuses := manager.Statuses(t.TempDir())
 	if len(statuses) != 1 || statuses[0].State != UnavailableState || statuses[0].Problem == nil {
 		t.Fatalf("Statuses() = %+v, want unavailable", statuses)
+	}
+}
+
+func TestManagerRequiresExplicitSelection(t *testing.T) {
+	t.Parallel()
+	manager, err := NewManager([]Tool{{ID: "typescript", SelectionRequired: true}}, &fakeApprovalStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.Discover(t.TempDir(), "typescript")
+	problem, ok := AsUnavailable(err)
+	if !ok || problem.Code != "tool/selection-required" || !strings.Contains(problem.Action, "--tool typescript=") {
+		t.Fatalf("Discover() error = %v, want explicit-selection guidance", err)
+	}
+}
+
+func TestManagerProviderDerivedSelectionCanBeApprovedAndReused(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	entryPoint := filepath.Join(t.TempDir(), "compiler.js")
+	if err := os.WriteFile(entryPoint, []byte("compiler"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager(
+		[]Tool{{ID: "typescript", SelectionRequired: true}},
+		FileApprovalStore{Path: filepath.Join(t.TempDir(), "approvals.json")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := Selection{Tool: "typescript", Path: entryPoint}
+	statuses := manager.StatusesForSelections(repository, []Selection{selection, selection})
+	if len(statuses) != 1 || statuses[0].State != NotApprovedState {
+		t.Fatalf("StatusesForSelections() = %+v, want one unapproved target", statuses)
+	}
+	if _, err := manager.ApproveTarget(repository, statuses[0].Target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ResolveAt(repository, "typescript", entryPoint); err != nil {
+		t.Fatalf("ResolveAt() error = %v, want reusable approval", err)
+	}
+	targets, err := manager.ApprovedTargets(repository, "typescript")
+	resolved, resolveErr := filepath.EvalSymlinks(entryPoint)
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if err != nil || len(targets) != 1 || targets[0].Path != resolved {
+		t.Fatalf("ApprovedTargets() = %+v, %v", targets, err)
 	}
 }
 

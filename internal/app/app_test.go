@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/safeexec"
 	"github.com/V-Isa/awareof/internal/scope"
 )
@@ -775,8 +776,8 @@ func TestRunSetup(t *testing.T) {
 			{Tool: "npm", State: safeexec.NotApprovedState, Target: target("npm", "/usr/bin/npm", safeexec.ExternalOrigin)},
 		}}
 		deps := base(manager, true)
-		deps.setupTools = func(context.Context, string) ([]safeexec.ToolID, error) {
-			return []safeexec.ToolID{"git"}, nil
+		deps.setupTools = func(context.Context, string) ([]safeexec.Selection, error) {
+			return []safeexec.Selection{{Tool: "git"}}, nil
 		}
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), []string{"--setup"}, strings.NewReader("yes\n"), &stdout, &stderr, deps)
@@ -786,7 +787,7 @@ func TestRunSetup(t *testing.T) {
 		if strings.Contains(stdout.String(), "node\n") || strings.Contains(stdout.String(), "npm\n") {
 			t.Fatalf("setup exposed irrelevant tools: %q", stdout.String())
 		}
-		if !reflect.DeepEqual(manager.statusRequests, []safeexec.ToolID{"git"}) {
+		if !reflect.DeepEqual(manager.statusRequests, []safeexec.Selection{{Tool: "git"}}) {
 			t.Fatalf("status requests = %v, want only git", manager.statusRequests)
 		}
 	})
@@ -797,7 +798,7 @@ func TestRunSetup(t *testing.T) {
 			Tool: "npm", State: safeexec.NotApprovedState, Target: target("npm", "/usr/bin/npm", safeexec.ExternalOrigin),
 		}}}
 		deps := base(manager, true)
-		deps.setupTools = func(context.Context, string) ([]safeexec.ToolID, error) {
+		deps.setupTools = func(context.Context, string) ([]safeexec.Selection, error) {
 			return nil, nil
 		}
 		var stdout, stderr bytes.Buffer
@@ -814,7 +815,7 @@ func TestRunSetup(t *testing.T) {
 		t.Parallel()
 		manager := &fakeToolManager{}
 		deps := base(manager, false)
-		deps.setupTools = func(context.Context, string) ([]safeexec.ToolID, error) {
+		deps.setupTools = func(context.Context, string) ([]safeexec.Selection, error) {
 			return nil, errors.New("discovery failed")
 		}
 		var stdout, stderr bytes.Buffer
@@ -836,7 +837,7 @@ func TestRunSetup(t *testing.T) {
 		if code != 0 || len(manager.approvedSetup) != 1 || manager.approvedSetup[0].Origin != safeexec.RepositoryOrigin {
 			t.Fatalf("run() = %d, approved=%v, stderr=%q", code, manager.approvedSetup, stderr.String())
 		}
-		if !strings.Contains(stdout.String(), "Repository-controlled tools require separate approval") || !strings.Contains(stderr.String(), "Approve repository-controlled tool typescript?") {
+		if !strings.Contains(stdout.String(), "Repository-controlled tools require separate approval") || !strings.Contains(stderr.String(), "Approve repository-controlled tool typescript at /work/node_modules/.bin/tsc?") {
 			t.Fatalf("stdout=%q, stderr=%q", stdout.String(), stderr.String())
 		}
 	})
@@ -903,13 +904,19 @@ func TestRelevantNativeTools(t *testing.T) {
 		name        string
 		files       map[string]string
 		directories []string
-		want        []safeexec.ToolID
+		want        []safeexec.Selection
 	}{
-		{name: "no native provider", want: []safeexec.ToolID{}},
-		{name: "Git worktree with malformed EAS config", files: map[string]string{"eas.json": "{"}, directories: []string{".git"}, want: []safeexec.ToolID{"git"}},
+		{name: "no native provider", want: []safeexec.Selection{}},
+		{name: "Git worktree with malformed EAS config", files: map[string]string{"eas.json": "{"}, directories: []string{".git"}, want: toolSelections("git")},
 		{name: "public npm package", files: map[string]string{"package.json": `{"name":"public"}`}, want: npmToolsForPlatform()},
-		{name: "private npm package", files: map[string]string{"package.json": `{"name":"private","private":true}`}, want: []safeexec.ToolID{}},
-		{name: "scripted npm package", files: map[string]string{"package.json": `{"name":"scripted","scripts":{"prepare":"build"}}`}, want: []safeexec.ToolID{}},
+		{name: "private npm package", files: map[string]string{"package.json": `{"name":"private","private":true}`}, want: []safeexec.Selection{}},
+		{name: "scripted npm package", files: map[string]string{"package.json": `{"name":"scripted","scripts":{"prepare":"build"}}`}, want: []safeexec.Selection{}},
+		{name: "TypeScript 6 project", files: map[string]string{
+			"tsconfig.json":                        `{}`,
+			"node_modules/typescript/package.json": `{"name":"typescript","version":"6.0.3"}`,
+			"node_modules/typescript/lib/_tsc.js":  "compiler",
+			"node_modules/typescript/lib/lib.d.ts": "standard library",
+		}, want: toolSelections("node", "typescript")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -921,14 +928,19 @@ func TestRelevantNativeTools(t *testing.T) {
 				}
 			}
 			for name, content := range test.files {
-				if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+				filename := filepath.Join(root, name)
+				if err := os.MkdirAll(filepath.Dir(filename), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filename, []byte(content), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			runner := &countingRunner{}
 			got, err := relevantNativeTools(context.Background(), root, nativeProviders{
-				git: git.New(runner),
-				npm: npm.New(runner),
+				git:        git.New(runner),
+				npm:        npm.New(runner),
+				typescript: typescript.New(runner, appTargetDiscoverer{}),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -943,11 +955,25 @@ func TestRelevantNativeTools(t *testing.T) {
 	}
 }
 
-func npmToolsForPlatform() []safeexec.ToolID {
+func npmToolsForPlatform() []safeexec.Selection {
 	if runtime.GOOS == "windows" {
-		return []safeexec.ToolID{}
+		return []safeexec.Selection{}
 	}
-	return []safeexec.ToolID{"node", "npm"}
+	return toolSelections("node", "npm")
+}
+
+func toolSelections(ids ...safeexec.ToolID) []safeexec.Selection {
+	selections := make([]safeexec.Selection, len(ids))
+	for index, id := range ids {
+		selections[index] = safeexec.Selection{Tool: id}
+	}
+	return selections
+}
+
+type appTargetDiscoverer struct{}
+
+func (appTargetDiscoverer) Discover(_ string, id safeexec.ToolID) (safeexec.Target, error) {
+	return safeexec.Target{}, &safeexec.UnavailableError{Tool: id, Code: "tool/selection-required", Summary: "selection required"}
 }
 
 func TestSetupConfirmation(t *testing.T) {
@@ -1026,7 +1052,7 @@ type fakeToolManager struct {
 	removed        int
 	revokeErr      error
 	statuses       []safeexec.Status
-	statusRequests []safeexec.ToolID
+	statusRequests []safeexec.Selection
 }
 
 type countingRunner struct {
@@ -1088,10 +1114,18 @@ func (m *fakeToolManager) Statuses(_ string) []safeexec.Status {
 }
 
 func (m *fakeToolManager) StatusesFor(_ string, requested []safeexec.ToolID) []safeexec.Status {
-	m.statusRequests = append([]safeexec.ToolID(nil), requested...)
+	selections := make([]safeexec.Selection, len(requested))
+	for index, id := range requested {
+		selections[index] = safeexec.Selection{Tool: id}
+	}
+	return m.StatusesForSelections("", selections)
+}
+
+func (m *fakeToolManager) StatusesForSelections(_ string, requested []safeexec.Selection) []safeexec.Status {
+	m.statusRequests = append([]safeexec.Selection(nil), requested...)
 	wanted := make(map[safeexec.ToolID]struct{}, len(requested))
-	for _, id := range requested {
-		wanted[id] = struct{}{}
+	for _, selection := range requested {
+		wanted[selection.Tool] = struct{}{}
 	}
 	statuses := make([]safeexec.Status, 0, len(wanted))
 	for _, status := range m.statuses {

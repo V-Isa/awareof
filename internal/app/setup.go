@@ -15,6 +15,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/render"
 	"github.com/V-Isa/awareof/internal/safeexec"
 )
@@ -22,8 +23,9 @@ import (
 const maxSetupAnswerBytes = 1024
 
 type nativeProviders struct {
-	git *git.Provider
-	npm *npm.Provider
+	git        *git.Provider
+	npm        *npm.Provider
+	typescript *typescript.Provider
 }
 
 func terminalInteraction(input io.Reader, display, prompt io.Writer) bool {
@@ -45,7 +47,12 @@ func runSetup(
 	interactive bool,
 ) int {
 	statuses = append([]safeexec.Status(nil), statuses...)
-	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Tool < statuses[j].Tool })
+	sort.Slice(statuses, func(i, j int) bool {
+		if statuses[i].Tool != statuses[j].Tool {
+			return statuses[i].Tool < statuses[j].Tool
+		}
+		return statuses[i].Target.Path < statuses[j].Target.Path
+	})
 	if err := writeSetupStatuses(stdout, statuses); err != nil {
 		writeError(stderr, "output/write", "cannot write setup output", err.Error())
 		return 2
@@ -98,7 +105,11 @@ func runSetup(
 			return 2
 		}
 		for _, status := range repository {
-			question := fmt.Sprintf("Approve repository-controlled tool %s? [y/N] ", render.SafeText(string(status.Tool)))
+			question := fmt.Sprintf(
+				"Approve repository-controlled tool %s at %s? [y/N] ",
+				render.SafeText(string(status.Tool)),
+				render.SafeText(status.Target.Path),
+			)
 			confirmed, err := setupConfirmation(stderr, scanner, question)
 			if err != nil {
 				writeError(stderr, "setup/input", "cannot read setup confirmation", err.Error())
@@ -127,16 +138,16 @@ func relevantNativeTools(
 	ctx context.Context,
 	root string,
 	providers nativeProviders,
-) ([]safeexec.ToolID, error) {
+) ([]safeexec.Selection, error) {
 	repo := provider.Repository{Root: root}
-	relevant := make(map[safeexec.ToolID]struct{})
+	relevant := make(map[safeexec.Selection]struct{})
 
 	gitInstances, err := providers.git.Detect(ctx, repo)
 	if err != nil {
 		return nil, fmt.Errorf("detect Git provider: %w", err)
 	}
 	if len(gitInstances) != 0 {
-		relevant["git"] = struct{}{}
+		relevant[safeexec.Selection{Tool: "git"}] = struct{}{}
 	}
 
 	npmInstances, err := providers.npm.Detect(ctx, repo)
@@ -144,16 +155,35 @@ func relevantNativeTools(
 		return nil, fmt.Errorf("detect npm provider: %w", err)
 	}
 	if providers.npm.NeedsNativeTools(npmInstances) {
-		relevant["node"] = struct{}{}
-		relevant["npm"] = struct{}{}
+		relevant[safeexec.Selection{Tool: "node"}] = struct{}{}
+		relevant[safeexec.Selection{Tool: "npm"}] = struct{}{}
 	}
 
-	ids := make([]safeexec.ToolID, 0, len(relevant))
-	for id := range relevant {
-		ids = append(ids, id)
+	if providers.typescript != nil {
+		typescriptInstances, err := providers.typescript.Detect(ctx, repo)
+		if err != nil {
+			return nil, fmt.Errorf("detect TypeScript provider: %w", err)
+		}
+		selections, err := providers.typescript.SetupSelections(root, typescriptInstances)
+		if err != nil {
+			return nil, fmt.Errorf("discover TypeScript native tools: %w", err)
+		}
+		for _, selection := range selections {
+			relevant[selection] = struct{}{}
+		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids, nil
+
+	selections := make([]safeexec.Selection, 0, len(relevant))
+	for selection := range relevant {
+		selections = append(selections, selection)
+	}
+	sort.Slice(selections, func(i, j int) bool {
+		if selections[i].Tool != selections[j].Tool {
+			return selections[i].Tool < selections[j].Tool
+		}
+		return selections[i].Path < selections[j].Path
+	})
+	return selections, nil
 }
 
 func writeSetupStatuses(w io.Writer, statuses []safeexec.Status) error {
@@ -174,7 +204,7 @@ func writeSetupStatuses(w io.Writer, statuses []safeexec.Status) error {
 		if status.Target.Path != "" {
 			if _, err := fmt.Fprintf(
 				w,
-				"  executable: %s\n  sha256: %s\n  origin: %s\n",
+				"  entry point: %s\n  sha256: %s\n  origin: %s\n",
 				render.SafeText(status.Target.Path),
 				status.Target.SHA256,
 				status.Target.Origin,

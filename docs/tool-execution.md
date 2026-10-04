@@ -4,12 +4,12 @@
 
 ## Trust boundary
 
-The provider owns the executable ID, arguments, input format, environment changes, timeout, output limit, and result parser. The user selects and approves an executable file. If a tool needs an interpreter, the provider selects it and requires separate approval. A shebang or `PATH` cannot select it implicitly. Repository configuration cannot supply arbitrary commands. `awareof` never uses a shell for provider evaluation.
+The provider owns the tool ID, entry-point form, arguments, input format, environment changes, timeout, output limit, and result parser. The user selects and approves an entry-point file. If a tool needs an interpreter, the provider selects it and requires separate approval. A shebang or `PATH` cannot select it implicitly. Repository configuration cannot supply arbitrary commands. `awareof` never uses a shell for provider evaluation.
 
 Discovery does not execute tools. Before execution, `awareof`:
 
-1. resolves symlinks to the executable's physical path;
-2. requires a regular executable file;
+1. resolves symlinks to the entry point's physical path;
+2. requires a regular entry-point file;
 3. calculates its SHA-256 digest;
 4. classifies it as external or inside the inspected repository;
 5. checks explicit approval for that exact identity;
@@ -38,12 +38,12 @@ The file is versioned JSON and limited to 1 MiB. Approval changes use an operati
 Each approval record contains:
 
 - tool ID;
-- resolved executable path;
+- resolved entry-point path;
 - SHA-256 digest;
-- executable origin;
-- repository root when the executable is inside that repository.
+- entry-point origin;
+- repository root when the entry point is inside that repository.
 
-An external executable approval applies across repositories only while its path and digest remain unchanged. A repository-local executable approval applies only to the repository in which it was approved. `--revoke-tool ID` removes all recorded approvals for that tool ID.
+An external entry-point approval applies across repositories only while its path and digest remain unchanged. A repository-local entry-point approval applies only to the repository in which it was approved. `--revoke-tool ID` removes all recorded approvals for that tool ID.
 
 ## Commands
 
@@ -55,7 +55,7 @@ awareof --tool git=/absolute/path/to/git --approve-tool git
 awareof --revoke-tool git
 ```
 
-`--approve-tool` and `--revoke-tool` may be repeated for batch operations. `--tool ID=PATH` selects an executable only for the current invocation; it never approves it implicitly.
+`--approve-tool` and `--revoke-tool` may be repeated for batch operations. `--tool ID=PATH` selects an entry point only for the current invocation; it never approves it implicitly.
 
 `--setup` determines which registered tools the detected native-backed providers can use, then discovers only those tools. It does not run them. It shows each path, digest, origin, and trust status. In a terminal, one confirmation can approve all unapproved external tools. Repository-controlled tools need separate approval and remain repository-scoped. Before approval, `awareof` resolves and hashes the displayed identity again. A change stops approval. Without an interactive terminal, setup reports status but does not prompt or change approvals.
 
@@ -66,5 +66,7 @@ The low-level commands are explicit and noninteractive. They support determinist
 Git inspection, Git change path sources, and the current EAS Git-workflow model use the registered `git` executable. They share one approval. Each use has fixed read-only operations and a sanitized Git environment.
 
 npm publication inspection uses separately approved `npm` and `node` targets. Both targets must be outside the inspected repository. The npm entrypoint loads JavaScript modules that its file digest does not cover. The provider runs that entrypoint through the approved Node executable and isolated temporary configuration. It disables network access and lifecycle scripts. It does not use npm versions older than 11 for packing.
+
+TypeScript Program inspection uses a safely derived or explicitly selected evaluator. TypeScript 6 uses an external `lib/_tsc.js` through separately approved external Node. TypeScript 7 uses the platform package's native `lib/tsc`. The provider compares bounded compiler-input fingerprints before and after evaluation. It does not run `.bin/tsc`, npm commands, package scripts, or repository-local TypeScript 6 JavaScript. See [the TypeScript provider contract](providers/typescript.md).
 
 Docker context membership uses Docker's official Go matcher. CODEOWNERS uses a safe parser. Neither executes a native tool.

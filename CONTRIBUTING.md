@@ -26,7 +26,7 @@ Local unit tests require only Go. Do not run integration-tagged tests directly o
 make integration
 ```
 
-This runs integration tests and available native/reference parity tests in a restricted disposable container. The first run may download the pinned official Go and Node base images and dependencies already declared in `go.sum`. It does not install Node or npm on the host.
+This runs integration tests and available native/reference parity tests in a restricted disposable container. The build may download the versioned official Go and Node base images, Go modules declared in `go.sum`, and the exact TypeScript package versions declared in the integration Dockerfile. It does not install Node, npm, or TypeScript on the host.
 
 ## Provider requirements
 

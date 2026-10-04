@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/providers/eas"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/render"
 	"github.com/V-Isa/awareof/internal/repository"
 	"github.com/V-Isa/awareof/internal/safeexec"
@@ -59,8 +60,8 @@ Options:
 
 Native-tool options:
   --tools                  show native-tool approval status
-  --tool ID=PATH           select an executable for this invocation
-  --approve-tool ID        approve the resolved executable; repeatable
+  --tool ID=PATH           select a native entry point for this invocation
+  --approve-tool ID        approve the resolved entry point; repeatable
   --revoke-tool ID         revoke all approvals for a tool; repeatable
 `
 
@@ -92,6 +93,7 @@ type toolManager interface {
 	Revoke(string, safeexec.ToolID) (int, error)
 	Statuses(string) []safeexec.Status
 	StatusesFor(string, []safeexec.ToolID) []safeexec.Status
+	StatusesForSelections(string, []safeexec.Selection) []safeexec.Status
 }
 
 type changeSource interface {
@@ -104,7 +106,7 @@ type dependencies struct {
 	resolveRoot  func(string, string) (string, error)
 	buildPaths   func(context.Context, pathset.Builder, []string, io.Reader, pathset.BuildOptions) ([]scope.Path, error)
 	loadContract func(string, []scope.ProviderID) (contract.Contract, error)
-	setupTools   func(context.Context, string) ([]safeexec.ToolID, error)
+	setupTools   func(context.Context, string) ([]safeexec.Selection, error)
 	providers    []provider.Provider
 	tools        toolManager
 	changes      changeSource
@@ -131,6 +133,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 		{ID: "git", Command: "git"},
 		{ID: "node", Command: "node"},
 		{ID: "npm", Command: "npm"},
+		{ID: "typescript", SelectionRequired: true},
 	}, approvalStore)
 	if err != nil {
 		return dependencies{}, err
@@ -139,6 +142,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 	gitProvider := git.New(runner)
 	easProvider := eas.New(runner)
 	npmProvider := npm.New(runner)
+	typescriptProvider := typescript.New(runner, manager)
 	return dependencies{
 		getwd:       os.Getwd,
 		resolveRoot: repository.ResolveRoot,
@@ -152,13 +156,14 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 			return builder.Build(ctx, inputs, input, options)
 		},
 		loadContract: contract.Load,
-		setupTools: func(ctx context.Context, root string) ([]safeexec.ToolID, error) {
+		setupTools: func(ctx context.Context, root string) ([]safeexec.Selection, error) {
 			return relevantNativeTools(ctx, root, nativeProviders{
-				git: gitProvider,
-				npm: npmProvider,
+				git:        gitProvider,
+				npm:        npmProvider,
+				typescript: typescriptProvider,
 			})
 		},
-		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, gitProvider, npmProvider},
+		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, gitProvider, npmProvider, typescriptProvider},
 		tools:       manager,
 		changes:     pathsource.NewGit(runner),
 		interactive: terminalInteraction,
@@ -270,7 +275,7 @@ func run(
 					writeError(stderr, "setup/discovery", "cannot determine relevant native tools", setupErr.Error())
 					return 2
 				}
-				statuses = deps.tools.StatusesFor(root, relevant)
+				statuses = deps.tools.StatusesForSelections(root, relevant)
 			} else {
 				statuses = deps.tools.Statuses(root)
 			}
@@ -599,7 +604,7 @@ func writeApprovedTool(w io.Writer, target safeexec.Target) error {
 	if target.Repository != "" {
 		scopeText = target.Repository
 	}
-	_, err := fmt.Fprintf(w, "Approved tool %s.\n  executable: %s\n  sha256: %s\n  scope: %s\n", render.SafeText(string(target.Tool)), render.SafeText(target.Path), target.SHA256, render.SafeText(scopeText))
+	_, err := fmt.Fprintf(w, "Approved tool %s.\n  entry point: %s\n  sha256: %s\n  scope: %s\n", render.SafeText(string(target.Tool)), render.SafeText(target.Path), target.SHA256, render.SafeText(scopeText))
 	return err
 }
 
@@ -638,7 +643,7 @@ func writeToolStatuses(w io.Writer, statuses []safeexec.Status) error {
 			}
 		}
 		if status.Target.Path != "" {
-			if _, err := fmt.Fprintf(w, "  executable: %s\n  origin: %s\n", render.SafeText(status.Target.Path), status.Target.Origin); err != nil {
+			if _, err := fmt.Fprintf(w, "  entry point: %s\n  origin: %s\n", render.SafeText(status.Target.Path), status.Target.Origin); err != nil {
 				return err
 			}
 		}

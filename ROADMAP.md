@@ -11,6 +11,7 @@
 - Conservative EAS Git-workflow source-archive provider with inactive nested `.easignore` detection.
 - Safe local CODEOWNERS coverage provider.
 - npm publication provider with isolated, script-disabled native evaluation.
+- Effective TypeScript Program membership with exact approved TypeScript 6 or 7 evaluators.
 - Sparse `.awareof.yaml` validation contracts.
 - Human and JSON output.
 - Explicit path-and-digest approval for native executables.
@@ -26,7 +27,7 @@
 
 ## Dogfooding and real-world validation
 
-- TypeScript, Prettier, and ESLint when installed executables can be selected, explicitly approved, and used without unsafe repository-code execution.
+- Prettier and ESLint when installed executables can be selected, explicitly approved, and used without unsafe repository-code execution.
 - GitHub Actions with explicit static path-scope and changed-set semantics.
 - One AI provider only when its effective file-context semantics are documented and safely readable.
 
@@ -34,9 +35,9 @@ These systems occur in repositories where `awareof` is being used and tested. Th
 
 Provider count never overrides correctness or safety. Unsupported effective behavior returns `UNKNOWN`. A provider is deferred when that would make it mostly uninformative.
 
-## Public source baseline
+## Public source
 
-- Publish the reviewed Go source and development repository with Git, Docker, EAS, npm, and CODEOWNERS support.
+- Maintain the reviewed Go source and development repository with documented provider limits.
 - Do not require packaged binary distribution before the source repository becomes public.
 
 ## Binary distribution later
