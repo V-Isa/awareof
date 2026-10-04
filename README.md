@@ -2,6 +2,8 @@
 
 See which tools include, exclude, or cover each repository file—and make CI catch unintended changes.
 
+For a one-off question about one tool, use that tool directly. `awareof` is for seeing how the same paths participate across several repository tools—and asserting those relationships so CI catches scope drift.
+
 ```text
 $ awareof .env
 .env
@@ -10,7 +12,7 @@ $ awareof .env
   npm              OUT     not included in the npm publish tarball for example
 ```
 
-Git will not track `.env`, but Docker will still receive it.
+Git ignores `.env`, but Docker will still receive it.
 
 State what must remain true in `.awareof.yaml`:
 
@@ -70,9 +72,9 @@ N/A      provider does not meaningfully apply to the path
 UNKNOWN  effective state cannot be established safely and reliably
 ```
 
-For Git, tracked paths are `IN` even if they also match an ignore rule. Untracked ignored paths are `OUT`. Untracked paths that are not ignored are `IN` because they are eligible for normal tracking.
+For Git, tracked paths are `IN` even if they also match an ignore rule. Untracked ignored paths are `OUT`. Untracked paths that are not ignored are `IN` because they are eligible for normal tracking. See [the exact provider semantics](docs/providers/git.md).
 
-For Docker, a repository-root `.dockerignore` defines the supported local context. Matching paths are `OUT`. Negated or unmatched paths are `IN`. `awareof` does not infer a context from a Dockerfile, run Docker, or discover Compose or Bake targets.
+For Docker, a repository-root `.dockerignore` defines the supported local context. Matching paths are `OUT`. Negated or unmatched paths are `IN`. `awareof` does not infer a context from a Dockerfile, run Docker, or discover Compose or Bake targets. See [the exact provider semantics](docs/providers/docker.md).
 
 For EAS Build, the supported instance is the source archive rooted at the Git worktree. EAS Git mode reads `.easignore` only at the Git root, so `awareof` reports nested `.easignore` files as inactive. Unsupported EAS modes return `UNKNOWN`. `awareof` never runs EAS or repository JavaScript. See [the exact provider semantics](docs/providers/eas.md).
 
@@ -139,7 +141,7 @@ awareof --tool typescript=/absolute/path/to/lib/_tsc.js --setup
 awareof --revoke-tool git
 ```
 
-Approvals are stored in the platform user configuration directory, outside repositories. They are bound to the entry point's resolved path and SHA-256 digest. A repository-local entry point is also bound to that repository. A changed or unapproved required tool produces `UNKNOWN`; it is never run implicitly. See [native-tool execution](docs/tool-execution.md) and [the normative vocabulary](docs/terminology.md).
+Approvals are stored in the platform user configuration directory, outside repositories. They are bound to the entry point's resolved path and SHA-256 digest. A repository-local entry point is also bound to that repository. A changed or unapproved required tool produces `UNKNOWN`; it is never run implicitly. Approval is an execution gate, not a sandbox. See [native-tool execution](docs/tool-execution.md) and [the normative vocabulary](docs/terminology.md).
 
 ## Development
 
