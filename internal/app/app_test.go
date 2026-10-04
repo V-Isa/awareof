@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/safeexec"
 	"github.com/V-Isa/awareof/internal/scope"
@@ -911,6 +912,11 @@ func TestRelevantNativeTools(t *testing.T) {
 		{name: "public npm package", files: map[string]string{"package.json": `{"name":"public"}`}, want: npmToolsForPlatform()},
 		{name: "private npm package", files: map[string]string{"package.json": `{"name":"private","private":true}`}, want: []safeexec.Selection{}},
 		{name: "scripted npm package", files: map[string]string{"package.json": `{"name":"scripted","scripts":{"prepare":"build"}}`}, want: []safeexec.Selection{}},
+		{name: "Prettier package context", files: map[string]string{
+			"package.json":                       `{"private":true,"devDependencies":{"prettier":"3.9.9"}}`,
+			"node_modules/prettier/package.json": `{"name":"prettier","version":"3.9.9"}`,
+			"node_modules/prettier/index.mjs":    "export {};",
+		}, want: toolSelections("node", "prettier")},
 		{name: "TypeScript 6 project", files: map[string]string{
 			"tsconfig.json":                        `{}`,
 			"node_modules/typescript/package.json": `{"name":"typescript","version":"6.0.3"}`,
@@ -940,6 +946,7 @@ func TestRelevantNativeTools(t *testing.T) {
 			got, err := relevantNativeTools(context.Background(), root, nativeProviders{
 				git:        git.New(runner),
 				npm:        npm.New(runner),
+				prettier:   prettier.New(runner, appTargetDiscoverer{}),
 				typescript: typescript.New(runner, appTargetDiscoverer{}),
 			})
 			if err != nil {

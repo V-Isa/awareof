@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/providers/eas"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/render"
 	"github.com/V-Isa/awareof/internal/repository"
@@ -133,6 +134,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 		{ID: "git", Command: "git"},
 		{ID: "node", Command: "node"},
 		{ID: "npm", Command: "npm"},
+		{ID: "prettier", SelectionRequired: true},
 		{ID: "typescript", SelectionRequired: true},
 	}, approvalStore)
 	if err != nil {
@@ -142,6 +144,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 	gitProvider := git.New(runner)
 	easProvider := eas.New(runner)
 	npmProvider := npm.New(runner)
+	prettierProvider := prettier.New(runner, manager)
 	typescriptProvider := typescript.New(runner, manager)
 	return dependencies{
 		getwd:       os.Getwd,
@@ -160,10 +163,11 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 			return relevantNativeTools(ctx, root, nativeProviders{
 				git:        gitProvider,
 				npm:        npmProvider,
+				prettier:   prettierProvider,
 				typescript: typescriptProvider,
 			})
 		},
-		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, gitProvider, npmProvider, typescriptProvider},
+		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, gitProvider, npmProvider, prettierProvider, typescriptProvider},
 		tools:       manager,
 		changes:     pathsource.NewGit(runner),
 		interactive: terminalInteraction,

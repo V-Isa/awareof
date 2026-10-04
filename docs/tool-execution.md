@@ -67,6 +67,8 @@ Git inspection, Git change path sources, and the current EAS Git-workflow model 
 
 npm publication inspection uses separately approved `npm` and `node` targets. Both targets must be outside the inspected repository. The npm entrypoint loads JavaScript modules that its file digest does not cover. The provider runs that entrypoint through the approved Node executable and isolated temporary configuration. It disables network access and lifecycle scripts. It does not use npm versions older than 11 for packing.
 
+Prettier eligibility inspection uses an approved external native Node executable and an approved external Prettier `index.mjs`. The provider compares the complete external package fingerprint with the installed project package before and after evaluation. It mirrors passive config geometry and contentless query paths into a temporary directory. Executable, shareable, and plugin-bearing configs are not imported. See [the Prettier provider contract](providers/prettier.md).
+
 TypeScript Program inspection uses a safely derived or explicitly selected evaluator. TypeScript 6 uses an external `lib/_tsc.js` through separately approved external Node. TypeScript 7 uses the platform package's native `lib/tsc`. The provider compares bounded compiler-input fingerprints before and after evaluation. It does not run `.bin/tsc`, npm commands, package scripts, or repository-local TypeScript 6 JavaScript. See [the TypeScript provider contract](providers/typescript.md).
 
 Docker context membership uses Docker's official Go matcher. CODEOWNERS uses a safe parser. Neither executes a native tool.

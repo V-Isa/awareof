@@ -51,7 +51,7 @@ awareof --changed-from main
 
 ## Status
 
-`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, and effective TypeScript Program membership. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
+`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, Prettier file eligibility, and effective TypeScript Program membership. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
 
 Install the command from source with Go:
 
@@ -81,6 +81,8 @@ For EAS Build, the supported instance is the source archive rooted at the Git wo
 For CODEOWNERS, `IN` means the final valid matching rule declares one or more owners. `OUT` means no valid rule matches or the final rule has no owners. The provider reads the current worktree safely. It does not claim that GitHub verified the owners or will require a review. See [the exact provider semantics](docs/providers/codeowners.md).
 
 For npm, `IN` means the path appears in npm's script-disabled dry-run tarball. An approved npm 11 or newer executable evaluates packages that have no pre-publication lifecycle script. `prepublishOnly`, `prepack`, or `prepare` makes paths in that package `UNKNOWN` because those scripts can change the artifact. `awareof` never runs them implicitly. Private packages and paths outside a workspace package are `N/A`. See [the exact provider semantics](docs/providers/npm.md).
+
+For Prettier, `IN` means at least one safely evaluated package context considers the path supported and nonignored. `OUT` means every applicable context ignores it or infers no parser. Evaluation requires exact approved external Node and Prettier 3.x package identities. Executable, shareable, or plugin-bearing configs return `UNKNOWN` without being imported. See [the exact provider semantics](docs/providers/prettier.md).
 
 For TypeScript, `IN` means at least one safely evaluated effective Program contains the path. `OUT` means every discovered Program resolved and none contains it. An unresolved compiler or project makes a path `UNKNOWN` unless another resolved Program already proves `IN`. TypeScript 6 and 7 require exact approved evaluators; `awareof` never runs `.bin/tsc` or repository-local TypeScript 6 JavaScript. See [the exact provider semantics](docs/providers/typescript.md).
 
@@ -137,6 +139,7 @@ Low-level, noninteractive trust controls remain available:
 awareof --tools
 awareof --approve-tool git
 awareof --tool git=/absolute/path/to/git --approve-tool git
+awareof --tool prettier=/absolute/path/to/node_modules/prettier/index.mjs --setup
 awareof --tool typescript=/absolute/path/to/lib/_tsc.js --setup
 awareof --revoke-tool git
 ```
@@ -161,7 +164,7 @@ Unit tests use only Go and do not require provider tools on the host.
 make integration
 ```
 
-Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact TypeScript package versions declared in the integration Dockerfile. It does not install Node, npm, or TypeScript on the host.
+Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact Prettier and TypeScript package versions declared in the integration Dockerfile. It does not install Node, npm, Prettier, or TypeScript on the host.
 
 Source publication does not include compiled dependency code. Before compiled artifacts are distributed, dependency licenses and required notices must be generated, verified, and included with them.
 

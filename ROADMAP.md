@@ -11,6 +11,7 @@
 - Conservative EAS Git-workflow source-archive provider with inactive nested `.easignore` detection.
 - Safe local CODEOWNERS coverage provider.
 - npm publication provider with isolated, script-disabled native evaluation.
+- Prettier file eligibility with passive config snapshots and exact approved package identity.
 - Effective TypeScript Program membership with exact approved TypeScript 6 or 7 evaluators.
 - Sparse `.awareof.yaml` validation contracts.
 - Human and JSON output.
@@ -27,7 +28,7 @@
 
 ## Dogfooding and real-world validation
 
-- Prettier and ESLint when installed executables can be selected, explicitly approved, and used without unsafe repository-code execution.
+- ESLint when effective executable configuration can be evaluated without weakening the safety contract.
 - GitHub Actions with explicit static path-scope and changed-set semantics.
 - One AI provider only when its effective file-context semantics are documented and safely readable.
 
