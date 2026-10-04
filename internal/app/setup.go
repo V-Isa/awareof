@@ -15,6 +15,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
+	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
 	"github.com/V-Isa/awareof/internal/render"
 	"github.com/V-Isa/awareof/internal/safeexec"
@@ -25,6 +26,7 @@ const maxSetupAnswerBytes = 1024
 type nativeProviders struct {
 	git        *git.Provider
 	npm        *npm.Provider
+	prettier   *prettier.Provider
 	typescript *typescript.Provider
 }
 
@@ -167,6 +169,20 @@ func relevantNativeTools(
 		selections, err := providers.typescript.SetupSelections(root, typescriptInstances)
 		if err != nil {
 			return nil, fmt.Errorf("discover TypeScript native tools: %w", err)
+		}
+		for _, selection := range selections {
+			relevant[selection] = struct{}{}
+		}
+	}
+
+	if providers.prettier != nil {
+		prettierInstances, err := providers.prettier.Detect(ctx, repo)
+		if err != nil {
+			return nil, fmt.Errorf("detect Prettier provider: %w", err)
+		}
+		selections, err := providers.prettier.SetupSelections(root, prettierInstances)
+		if err != nil {
+			return nil, fmt.Errorf("discover Prettier native tools: %w", err)
 		}
 		for _, selection := range selections {
 			relevant[selection] = struct{}{}
