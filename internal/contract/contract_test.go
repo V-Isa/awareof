@@ -122,6 +122,7 @@ func TestParseRejectsInvalidContracts(t *testing.T) {
 		{name: "alias", content: "version: 1\nrules: &r {}\ncopy: *r\n", want: "aliases, anchors"},
 		{name: "custom tag", content: "!contract\nversion: 1\nrules: {}\n", want: "custom YAML tag"},
 		{name: "unknown field", content: "version: 1\nrules: {}\nextra: true\n", want: "unknown document field"},
+		{name: "execution authority is not contract data", content: "version: 1\nallowRepoCode: true\nrules: {}\n", want: "unknown document field"},
 		{name: "missing version", content: "rules: {}\n", want: "missing required field \"version\""},
 		{name: "missing rules", content: "version: 1\n", want: "missing required field \"rules\""},
 		{name: "string version", content: "version: \"1\"\nrules: {}\n", want: "version must be integer 1"},

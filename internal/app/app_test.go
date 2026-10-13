@@ -16,6 +16,7 @@ import (
 	"github.com/V-Isa/awareof/internal/contract"
 	"github.com/V-Isa/awareof/internal/pathset"
 	"github.com/V-Isa/awareof/internal/provider"
+	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
@@ -42,6 +43,8 @@ func TestParseOptions(t *testing.T) {
 		{name: "changed from equals", args: []string{"--changed-from=HEAD~1"}, want: options{changedFrom: "HEAD~1"}},
 		{name: "tool status", args: []string{"--tools"}, want: options{tools: true}},
 		{name: "setup", args: []string{"--setup"}, want: options{setup: true}},
+		{name: "allow repo code", args: []string{"--allow-repo-code", "eslint,jest"}, want: options{allowRepoCode: []scope.ProviderID{"eslint", "jest"}}},
+		{name: "allow repo code equals and repeat", args: []string{"--allow-repo-code=eslint", "--allow-repo-code", "jest"}, want: options{allowRepoCode: []scope.ProviderID{"eslint", "jest"}}},
 		{name: "tool override", args: []string{"--tool", "git=/usr/bin/git"}, want: options{toolPaths: map[safeexec.ToolID]string{"git": "/usr/bin/git"}}},
 		{name: "tool override equals", args: []string{"--tool=git=/usr/bin/git"}, want: options{toolPaths: map[safeexec.ToolID]string{"git": "/usr/bin/git"}}},
 		{name: "approve tools", args: []string{"--approve-tool", "git", "--approve-tool=typescript"}, want: options{approve: []safeexec.ToolID{"git", "typescript"}}},
@@ -60,6 +63,13 @@ func TestParseOptions(t *testing.T) {
 		{name: "empty separate root value", args: []string{"--root", ""}, wantError: "missing value"},
 		{name: "empty root equals", args: []string{"--root="}, wantError: "missing value"},
 		{name: "missing changed from", args: []string{"--changed-from"}, wantError: "missing value"},
+		{name: "missing repo code provider", args: []string{"--allow-repo-code"}, wantError: "missing value"},
+		{name: "empty repo code provider", args: []string{"--allow-repo-code="}, wantError: "missing value"},
+		{name: "repo code all unsupported", args: []string{"--allow-repo-code=all"}, wantError: "not supported"},
+		{name: "repo code empty item rejected", args: []string{"--allow-repo-code=eslint,,jest"}, wantError: "invalid provider list"},
+		{name: "repo code does not consume option as value", args: []string{"--allow-repo-code", "--json"}, wantError: "invalid provider list"},
+		{name: "repo code whitespace rejected", args: []string{"--allow-repo-code=eslint, jest"}, wantError: "invalid provider list"},
+		{name: "duplicate repo code provider", args: []string{"--allow-repo-code=eslint,eslint"}, wantError: "listed more than once"},
 		{name: "empty changed from", args: []string{"--changed-from="}, wantError: "missing value"},
 		{name: "duplicate changed from", args: []string{"--changed-from=main", "--changed-from", "HEAD"}, wantError: "only once"},
 		{name: "missing tool override", args: []string{"--tool"}, wantError: "missing value"},
@@ -196,6 +206,7 @@ func TestRunRejectsConflictingPathSources(t *testing.T) {
 		{name: "tool management and staged", args: []string{"--tools", "--staged"}, want: "tool management cannot"},
 		{name: "tool management and literal", args: []string{"--tools", "--literal"}, want: "tool management cannot"},
 		{name: "setup and path", args: []string{"--setup", "src"}, want: "tool management cannot"},
+		{name: "setup and repository code permission", args: []string{"--setup", "--allow-repo-code=eslint"}, want: "tool management cannot"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -241,6 +252,149 @@ func TestRunPassesPathBuildOptions(t *testing.T) {
 	}
 	if gotOptions != (pathset.BuildOptions{Literal: true}) {
 		t.Fatalf("buildPaths options = %+v, want literal", gotOptions)
+	}
+}
+
+func TestRunRepositoryCodeDelegation(t *testing.T) {
+	t.Parallel()
+
+	base := func(current *delegationProvider) dependencies {
+		return dependencies{
+			getwd:       func() (string, error) { return "/work", nil },
+			resolveRoot: func(string, string) (string, error) { return "/work", nil },
+			buildPaths: func(context.Context, pathset.Builder, []string, io.Reader, pathset.BuildOptions) ([]scope.Path, error) {
+				return []scope.Path{"src/app.ts"}, nil
+			},
+			loadContract: func(string, []scope.ProviderID) (contract.Contract, error) {
+				return contract.Contract{File: ".awareof.yaml", Rules: []contract.Rule{{
+					Pattern: "src/**", Assertions: map[scope.ProviderID]scope.State{"eslint": scope.In},
+				}}}, nil
+			},
+			providers: []provider.Provider{current},
+		}
+	}
+
+	t.Run("permission is absent by default", func(t *testing.T) {
+		t.Parallel()
+		current := &delegationProvider{}
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"src/app.ts"}, strings.NewReader(""), &stdout, &stderr, base(current))
+		if code != 0 || stderr.Len() != 0 || current.allowed {
+			t.Fatalf("run() = %d, allowed=%v, stdout=%q, stderr=%q", code, current.allowed, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("permission reaches only the named provider", func(t *testing.T) {
+		t.Parallel()
+		current := &delegationProvider{}
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--allow-repo-code=eslint", "src/app.ts"},
+			strings.NewReader(""), &stdout, &stderr, base(current),
+		)
+		if code != 0 || !current.allowed {
+			t.Fatalf("run() = %d, allowed=%v, stdout=%q, stderr=%q", code, current.allowed, stdout.String(), stderr.String())
+		}
+		for _, want := range []string{
+			"WARNING [execution/repository-code-allowed]", "providers: eslint", "this is not sandboxed",
+		} {
+			if !strings.Contains(stderr.String(), want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+			}
+		}
+	})
+
+	t.Run("unknown provider is usage error", func(t *testing.T) {
+		t.Parallel()
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--allow-repo-code=jest", "src/app.ts"},
+			strings.NewReader(""), &stdout, &stderr, base(&delegationProvider{}),
+		)
+		if code != 2 || !strings.Contains(stderr.String(), "requested provider \"jest\" is not registered") {
+			t.Fatalf("run() = %d, stderr=%q", code, stderr.String())
+		}
+	})
+
+	t.Run("unknown provider is rejected before empty validation result", func(t *testing.T) {
+		t.Parallel()
+		deps := base(&delegationProvider{})
+		deps.loadContract = func(string, []scope.ProviderID) (contract.Contract, error) {
+			return contract.Contract{File: ".awareof.yaml", Rules: []contract.Rule{{
+				Pattern: "other/**", Assertions: map[scope.ProviderID]scope.State{"eslint": scope.In},
+			}}}, nil
+		}
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--validate", "--allow-repo-code=jest"},
+			strings.NewReader(""), &stdout, &stderr, deps,
+		)
+		if code != 2 || !strings.Contains(stderr.String(), "requested provider \"jest\" is not registered") {
+			t.Fatalf("run() = %d, stderr=%q", code, stderr.String())
+		}
+	})
+
+	t.Run("unsupported provider is usage error", func(t *testing.T) {
+		t.Parallel()
+		deps := base(&delegationProvider{})
+		deps.providers = []provider.Provider{&validationProvider{state: scope.In}}
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--allow-repo-code=test", "src/app.ts"},
+			strings.NewReader(""), &stdout, &stderr, deps,
+		)
+		if code != 2 || !strings.Contains(stderr.String(), "does not support --allow-repo-code") {
+			t.Fatalf("run() = %d, stderr=%q", code, stderr.String())
+		}
+	})
+
+	t.Run("quiet keeps the security warning", func(t *testing.T) {
+		t.Parallel()
+		current := &delegationProvider{}
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--quiet", "--validate", "--allow-repo-code=eslint", "src/app.ts"},
+			strings.NewReader(""), &stdout, &stderr, base(current),
+		)
+		if code != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "execution/repository-code-allowed") {
+			t.Fatalf("run() = %d, stdout=%q, stderr=%q", code, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("validation accepts unused permission without warning", func(t *testing.T) {
+		t.Parallel()
+		deps := base(&delegationProvider{})
+		deps.providers = []provider.Provider{&delegationProvider{}, &validationProvider{state: scope.In}}
+		deps.loadContract = func(string, []scope.ProviderID) (contract.Contract, error) {
+			return contract.Contract{File: ".awareof.yaml", Rules: []contract.Rule{{
+				Pattern: "src/**", Assertions: map[scope.ProviderID]scope.State{"test": scope.In},
+			}}}, nil
+		}
+		var stdout, stderr bytes.Buffer
+		code := run(
+			context.Background(), []string{"--validate", "--allow-repo-code=eslint", "src/app.ts"},
+			strings.NewReader(""), &stdout, &stderr, deps,
+		)
+		if code != 0 || stdout.String() != "Validation passed: 1 assertions satisfied.\n" || stderr.Len() != 0 {
+			t.Fatalf("run() = %d, stdout=%q, stderr=%q", code, stdout.String(), stderr.String())
+		}
+	})
+}
+
+func TestRepositoryCodeContext(t *testing.T) {
+	t.Parallel()
+	if evaluation, err := repositoryCodeContext([]provider.Provider{&validationProvider{}}, nil); err != nil || evaluation.RepoCodeAllowed("test") {
+		t.Fatalf("empty permission context = %#v, %v", evaluation, err)
+	}
+	if _, err := repositoryCodeContext([]provider.Provider{&validationProvider{}}, []scope.ProviderID{"test"}); err == nil {
+		t.Fatal("unsupported provider permission error = nil")
+	}
+	evaluation, err := repositoryCodeContext([]provider.Provider{&delegationProvider{}}, []scope.ProviderID{"eslint"})
+	if err != nil || !evaluation.RepoCodeAllowed("eslint") {
+		t.Fatalf("ESLint permission context = %#v, %v", evaluation, err)
+	}
+	if _, err := repositoryCodeContext([]provider.Provider{&validationProvider{}}, []scope.ProviderID{"eslint"}); err == nil || !strings.Contains(err.Error(), "requested provider \"eslint\" is not registered") {
+		t.Fatalf("unknown provider error = %v", err)
 	}
 }
 
@@ -917,6 +1071,12 @@ func TestRelevantNativeTools(t *testing.T) {
 			"node_modules/prettier/package.json": `{"name":"prettier","version":"3.9.9"}`,
 			"node_modules/prettier/index.mjs":    "export {};",
 		}, want: toolSelections("node", "prettier")},
+		{name: "ESLint package context", files: map[string]string{
+			"package.json":                     `{"private":true,"devDependencies":{"eslint":"9.39.5"}}`,
+			"eslint.config.js":                 "module.exports = [];",
+			"node_modules/eslint/package.json": `{"name":"eslint","version":"9.39.5"}`,
+			"node_modules/eslint/lib/api.js":   "module.exports = {};",
+		}, want: toolSelections("node")},
 		{name: "TypeScript 6 project", files: map[string]string{
 			"tsconfig.json":                        `{}`,
 			"node_modules/typescript/package.json": `{"name":"typescript","version":"6.0.3"}`,
@@ -946,6 +1106,7 @@ func TestRelevantNativeTools(t *testing.T) {
 			got, err := relevantNativeTools(context.Background(), root, nativeProviders{
 				git:        git.New(runner),
 				npm:        npm.New(runner),
+				eslint:     eslint.New(runner, appTargetDiscoverer{}),
 				prettier:   prettier.New(runner, appTargetDiscoverer{}),
 				typescript: typescript.New(runner, appTargetDiscoverer{}),
 			})
@@ -980,6 +1141,10 @@ func toolSelections(ids ...safeexec.ToolID) []safeexec.Selection {
 type appTargetDiscoverer struct{}
 
 func (appTargetDiscoverer) Discover(_ string, id safeexec.ToolID) (safeexec.Target, error) {
+	return safeexec.Target{}, &safeexec.UnavailableError{Tool: id, Code: "tool/selection-required", Summary: "selection required"}
+}
+
+func (appTargetDiscoverer) Resolve(_ string, id safeexec.ToolID) (safeexec.Target, error) {
 	return safeexec.Target{}, &safeexec.UnavailableError{Tool: id, Code: "tool/selection-required", Summary: "selection required"}
 }
 
@@ -1158,6 +1323,37 @@ func (*appProvider) Evaluate(context.Context, provider.EvaluationContext, provid
 type appErrorWriter struct{}
 
 func (appErrorWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+type delegationProvider struct {
+	allowed bool
+}
+
+func (*delegationProvider) ID() scope.ProviderID { return "eslint" }
+
+func (*delegationProvider) RepositoryCodePermission() {}
+
+func (*delegationProvider) Detect(context.Context, provider.Repository) ([]provider.Instance, error) {
+	return []provider.Instance{provider.InstanceDescriptor{Provider: "eslint", ID: "eslint"}}, nil
+}
+
+func (p *delegationProvider) Evaluate(
+	_ context.Context,
+	evaluation provider.EvaluationContext,
+	_ provider.Repository,
+	_ provider.Instance,
+	paths []scope.Path,
+) ([]scope.Result, error) {
+	p.allowed = evaluation.RepoCodeAllowed("eslint")
+	results := make([]scope.Result, 0, len(paths))
+	for _, name := range paths {
+		results = append(results, scope.Result{
+			Path: name, Provider: "eslint", Instance: "eslint", State: scope.In,
+			Explanation: scope.Explanation{Code: "eslint/test", Summary: "selected"},
+			Provenance:  scope.Provenance{Method: scope.SafeParser},
+		})
+	}
+	return results, nil
+}
 
 type validationProvider struct {
 	state scope.State

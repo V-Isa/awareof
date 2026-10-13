@@ -29,6 +29,11 @@ var loaderEnvironment = []string{
 	"LD_PRELOAD",
 }
 
+// ErrOutputLimit reports that captured command output exceeded the configured
+// bound. Providers may treat this bounded operational limit as unavailable
+// native evidence while other runner failures remain hard errors.
+var ErrOutputLimit = errors.New("captured output exceeds the configured limit")
+
 // Request is one audited, argument-vector command invocation. Root identifies
 // the inspected repository for entry-point approval. Dir optionally selects a
 // separate provider-controlled working directory.
@@ -182,7 +187,7 @@ func (r Runner) Run(ctx context.Context, request Request) (Response, error) {
 		return Response{}, fmt.Errorf("run %q: %w", request.Tool, commandCtx.Err())
 	}
 	if stdout.truncated || stderr.truncated {
-		return Response{}, fmt.Errorf("run %q: captured output exceeds %d bytes", request.Tool, limit)
+		return Response{}, fmt.Errorf("run %q: %w of %d bytes", request.Tool, ErrOutputLimit, limit)
 	}
 	if runErr == nil {
 		return response, nil

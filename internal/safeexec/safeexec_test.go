@@ -174,7 +174,7 @@ func TestRunnerRun(t *testing.T) {
 			Root: t.TempDir(), Tool: "test",
 			Args: []string{"-test.run=TestHelperProcess", "--", "output"},
 		})
-		if err == nil || !strings.Contains(err.Error(), "exceeds 3 bytes") {
+		if !errors.Is(err, ErrOutputLimit) || !strings.Contains(err.Error(), "of 3 bytes") {
 			t.Fatalf("Run() error = %v, want output limit error", err)
 		}
 	})

@@ -4,7 +4,7 @@
 
 ## Trust boundary
 
-The provider owns the tool ID, entry-point form, arguments, input format, environment changes, timeout, output limit, and result parser. The user selects and approves an entry-point file. If a tool needs an interpreter, the provider selects it and requires separate approval. A shebang or `PATH` cannot select it implicitly. Repository configuration cannot supply arbitrary commands. `awareof` never uses a shell for provider evaluation.
+The provider owns the tool ID, entry-point form, arguments, input format, environment changes, timeout, output limit, and result parser. The user selects and approves an entry-point file. If a tool needs an interpreter, the provider selects it and requires separate approval. A shebang or `PATH` cannot select it implicitly. Repository configuration cannot change `awareof`'s evaluator command plan. `awareof` never uses a shell for provider evaluation.
 
 Discovery does not execute tools. Before execution, `awareof`:
 
@@ -24,6 +24,20 @@ If the tool is missing, changed, or not approved, the provider returns `UNKNOWN`
 Approval is a user trust decision. It is not permission enforced by the operating system. `awareof` uses an approval only for the provider's fixed operations. A digest identifies the selected entry-point file and invalidates approval when its bytes change. It does not prove that the executable is safe or comes from a specific publisher. It also does not identify every interpreter, library, plugin, or configuration file that the executable can load. The provider must assess these behaviors. It returns `UNKNOWN` when its fixed invocation cannot meet the safety contract.
 
 This mechanism is an execution gate. It is not a sandbox against a malicious process that runs as the same operating-system user. On Unix, a malicious process can deliberately leave its process group. Providers must still use the least powerful safe mechanism. Approval does not make every tool operation safe.
+
+## Repository-code delegation
+
+`awareof` never implicitly executes repository-controlled code. Without explicit delegation, a provider that cannot establish effective truth without loading it returns `UNKNOWN`.
+
+The user may explicitly delegate that authority to a named provider for one invocation:
+
+```sh
+awareof --allow-repo-code=eslint src/app.ts
+```
+
+Delegation is provider-specific, invocation-only, nonpersistent, and noninteractive. There is no `all` shortcut. A contract cannot grant it. Native-tool approval and repository-code delegation are independent: approval permits `awareof` to start the selected tool, while delegation permits the named provider's fixed evaluator to load repository-controlled configuration and modules.
+
+Delegation is not a sandbox. Loaded repository code runs with the user's privileges and may read or change files, inspect inherited environment variables and credentials, use the network, start processes, or manipulate its evaluator process and output. Providers remove variables that can subvert their fixed loader or protocol, but preserve ordinary invocation variables when native configuration can depend on them. Timeouts, output limits, environment cleanup, protocol validation, and process-tree containment remain defense in depth; they do not make untrusted code or its reported result trustworthy.
 
 ## Approval storage
 
@@ -70,5 +84,7 @@ npm publication inspection uses separately approved `npm` and `node` targets. Bo
 Prettier eligibility inspection uses an approved external native Node executable and an approved external Prettier `index.mjs`. The provider compares the complete external package fingerprint with the installed project package before and after evaluation. It mirrors passive config geometry and contentless query paths into a temporary directory. Executable, shareable, and plugin-bearing configs are not imported. See [the Prettier provider contract](providers/prettier.md).
 
 TypeScript Program inspection uses a safely derived or explicitly selected evaluator. TypeScript 6 uses an external `lib/_tsc.js` through separately approved external Node. TypeScript 7 uses the platform package's native `lib/tsc`. The provider compares bounded compiler-input fingerprints before and after evaluation. It does not run `.bin/tsc`, npm commands, package scripts, or repository-local TypeScript 6 JavaScript. See [the TypeScript provider contract](providers/typescript.md).
+
+ESLint eligibility inspection uses an approved external native executable file named `node` and the repository's installed ESLint API entry point. The file-format check rejects scripts and obvious shims; it is not proof of the executable's publisher or behavior. The provider loads the explicitly selected context-root flat config only after `--allow-repo-code=eslint`. The helper and API call are fixed, but the delegated config and anything it imports are arbitrary repository-controlled code. No package script, npm command, npx command, Expo command, or shell is used. See [the ESLint provider contract](providers/eslint.md).
 
 Docker context membership uses Docker's official Go matcher. CODEOWNERS uses a safe parser. Neither executes a native tool.

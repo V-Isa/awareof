@@ -144,7 +144,11 @@ func writeToolSetupHint(w io.Writer, setup []setupRequirement) error {
 	if len(setup) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(w, "\n%s requires setup.\n", toolCount(len(setup))); err != nil {
+	verb := "require"
+	if len(setup) == 1 {
+		verb = "requires"
+	}
+	if _, err := fmt.Fprintf(w, "\n%s %s setup.\n", toolCount(len(setup)), verb); err != nil {
 		return err
 	}
 	for _, requirement := range setup {

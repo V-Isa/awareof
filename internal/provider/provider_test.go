@@ -22,7 +22,7 @@ func TestEvaluateOrdersProvidersInstancesAndResults(t *testing.T) {
 		&fakeProvider{id: "a", instances: []Instance{InstanceDescriptor{Provider: "a", ID: "a"}}},
 	}
 
-	got, err := Evaluate(context.Background(), Repository{Root: "/repo"}, paths, providers)
+	got, err := Evaluate(context.Background(), EvaluationContext{}, Repository{Root: "/repo"}, paths, providers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +33,48 @@ func TestEvaluateOrdersProvidersInstancesAndResults(t *testing.T) {
 	want := []string{"a:a:a", "a:z:one", "a:z:two", "b:a:a", "b:z:one", "b:z:two"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("Evaluate() order = %v, want %v", order, want)
+	}
+}
+
+func TestEvaluationContextRepositoryCodePermission(t *testing.T) {
+	t.Parallel()
+
+	var zero EvaluationContext
+	if zero.RepoCodeAllowed("eslint") {
+		t.Fatal("zero EvaluationContext grants repository-code permission")
+	}
+
+	context, err := NewEvaluationContext([]scope.ProviderID{"eslint", "jest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !context.RepoCodeAllowed("eslint") || !context.RepoCodeAllowed("jest") || context.RepoCodeAllowed("git") {
+		t.Fatalf("unexpected repository-code permissions")
+	}
+
+	for _, ids := range [][]scope.ProviderID{{""}, {"ESLint"}, {"eslint", "eslint"}} {
+		if _, err := NewEvaluationContext(ids); err == nil {
+			t.Fatalf("NewEvaluationContext(%q) error = nil", ids)
+		}
+	}
+}
+
+func TestEvaluatePassesEvaluationContext(t *testing.T) {
+	t.Parallel()
+
+	evaluation, err := NewEvaluationContext([]scope.ProviderID{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := &fakeProvider{
+		id: "test", instances: []Instance{InstanceDescriptor{Provider: "test", ID: "test"}},
+		wantRepoCode: true,
+	}
+	inert := &fakeProvider{
+		id: "other", instances: []Instance{InstanceDescriptor{Provider: "other", ID: "other"}},
+	}
+	if _, err := Evaluate(context.Background(), evaluation, Repository{}, []scope.Path{"a"}, []Provider{current, inert}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -154,7 +196,7 @@ func TestEvaluateRejectsInvalidProviderContracts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := Evaluate(context.Background(), Repository{}, paths, test.providers())
+			_, err := Evaluate(context.Background(), EvaluationContext{}, Repository{}, paths, test.providers())
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Evaluate() error = %v, want containing %q", err, test.want)
 			}
@@ -172,7 +214,7 @@ func TestEvaluatePreservesProviderInstance(t *testing.T) {
 		}},
 		wantConfig: "provider-private",
 	}
-	if _, err := Evaluate(context.Background(), Repository{}, []scope.Path{"a"}, []Provider{current}); err != nil {
+	if _, err := Evaluate(context.Background(), EvaluationContext{}, Repository{}, []scope.Path{"a"}, []Provider{current}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -181,7 +223,7 @@ func TestEvaluateHonorsCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := Evaluate(ctx, Repository{}, nil, nil)
+	_, err := Evaluate(ctx, EvaluationContext{}, Repository{}, nil, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Evaluate() error = %v, want context.Canceled", err)
 	}
@@ -220,13 +262,14 @@ func TestSelect(t *testing.T) {
 }
 
 type fakeProvider struct {
-	id          scope.ProviderID
-	instances   []Instance
-	detectErr   error
-	evaluateErr error
-	results     []scope.Result
-	useResults  bool
-	wantConfig  string
+	id           scope.ProviderID
+	instances    []Instance
+	detectErr    error
+	evaluateErr  error
+	results      []scope.Result
+	useResults   bool
+	wantConfig   string
+	wantRepoCode bool
 }
 
 func (p *fakeProvider) ID() scope.ProviderID { return p.id }
@@ -235,9 +278,12 @@ func (p *fakeProvider) Detect(context.Context, Repository) ([]Instance, error) {
 	return append([]Instance(nil), p.instances...), p.detectErr
 }
 
-func (p *fakeProvider) Evaluate(_ context.Context, _ EvaluationContext, _ Repository, instance Instance, paths []scope.Path) ([]scope.Result, error) {
+func (p *fakeProvider) Evaluate(_ context.Context, evaluation EvaluationContext, _ Repository, instance Instance, paths []scope.Path) ([]scope.Result, error) {
 	if p.evaluateErr != nil {
 		return nil, p.evaluateErr
+	}
+	if evaluation.RepoCodeAllowed(p.id) != p.wantRepoCode {
+		return nil, errors.New("unexpected repository-code permission")
 	}
 	if p.useResults {
 		return append([]scope.Result(nil), p.results...), nil

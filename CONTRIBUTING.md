@@ -26,13 +26,15 @@ Local unit tests require only Go. Do not run integration-tagged tests directly o
 make integration
 ```
 
-This runs integration tests and available native/reference parity tests in a restricted disposable container. The build may download the versioned official Go and Node base images, Go modules declared in `go.sum`, and the exact Prettier and TypeScript package versions declared in the integration Dockerfile. It does not install Node, npm, Prettier, or TypeScript on the host.
+This runs integration tests and available native/reference parity tests in a restricted disposable container. The build may download the versioned official Go and Node base images, Go modules declared in `go.sum`, and the exact ESLint, Prettier, and TypeScript package versions declared in the integration Dockerfile. It does not install these tools on the host.
 
 ## Provider requirements
 
 A provider must use only the normalized states `IN`, `OUT`, `N/A`, and `UNKNOWN`, and document which states apply to its semantics. It must discover instances without running repository code, identify authoritative semantics, and pass exhaustive behavioral tests. Where an authoritative executable or implementation exists, tests must verify native/reference parity. Otherwise, tests must use fixtures derived from authoritative documentation or reference sources. Ambiguity must produce `UNKNOWN`, not a guess. See [the normative vocabulary](docs/terminology.md).
 
-Providers that need an executable must register a stable tool ID and use the shared execution boundary. Each provider owns its fixed arguments, environment hardening, timeout, output parser, and documented `UNKNOWN` cases. Repository configuration must never supply an arbitrary command. See [native-tool execution](docs/tool-execution.md).
+Providers that need an executable must register a stable tool ID and use the shared execution boundary. Each provider owns its fixed arguments, environment hardening, timeout, output parser, and documented `UNKNOWN` cases. Repository configuration must never change the evaluator command plan. See [native-tool execution](docs/tool-execution.md).
+
+A provider may load repository-controlled configuration only after explicit, invocation-scoped delegation for that provider. Normal evaluation must remain noninteractive and return `UNKNOWN` without the grant. Contracts and repository files must never grant execution authority.
 
 ## Code conventions
 

@@ -3,6 +3,8 @@ FROM node:26.8.1-bookworm AS node-toolchain
 
 RUN npm install --prefix /opt/typescript6 --ignore-scripts --no-audit --no-fund --omit=dev typescript@6.0.3 \
     && npm install --prefix /opt/typescript7 --ignore-scripts --no-audit --no-fund --omit=dev typescript@7.0.2 \
+    && npm install --prefix /opt/eslint939 --ignore-scripts --no-audit --no-fund --omit=dev eslint@9.39.5 \
+    && npm install --prefix /opt/eslint10120 --ignore-scripts --no-audit --no-fund --omit=dev eslint@10.12.0 \
     && npm install --prefix /opt/prettier300 --ignore-scripts --no-audit --no-fund --omit=dev prettier@3.0.0 \
     && npm install --prefix /opt/prettier325 --ignore-scripts --no-audit --no-fund --omit=dev prettier@3.2.5 \
     && npm install --prefix /opt/prettier330 --ignore-scripts --no-audit --no-fund --omit=dev prettier@3.3.0 \
@@ -17,6 +19,8 @@ COPY --from=node-toolchain /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-toolchain /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 COPY --from=node-toolchain /opt/typescript6 /opt/typescript6
 COPY --from=node-toolchain /opt/typescript7 /opt/typescript7
+COPY --from=node-toolchain /opt/eslint939 /opt/eslint939
+COPY --from=node-toolchain /opt/eslint10120 /opt/eslint10120
 COPY --from=node-toolchain /opt/prettier300 /opt/prettier300
 COPY --from=node-toolchain /opt/prettier325 /opt/prettier325
 COPY --from=node-toolchain /opt/prettier330 /opt/prettier330

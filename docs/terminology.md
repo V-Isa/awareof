@@ -60,4 +60,10 @@ An operational error means the command could not complete the requested operatio
 - **approved**: the user accepted the exact entry-point identity recorded by `awareof`.
 - **executed**: an approved executable was started without a shell, using a provider-owned argument vector and hardened environment.
 
-Selection is not approval. Detection is not execution. Approval is not a sandbox or an operating-system capability restriction. `awareof` uses an approval only for the provider's fixed operations. Repository configuration cannot supply arbitrary commands.
+Selection is not approval. Detection is not execution. Approval is not a sandbox or an operating-system capability restriction. `awareof` uses an approval only for the provider's fixed operations. Repository configuration cannot change `awareof`'s evaluator command plan.
+
+## Repository-code delegation
+
+Repository-code delegation is explicit authority for one named provider to load repository-controlled configuration and modules during the current invocation. It is not persistent and is not a sandbox.
+
+Tool approval and repository-code delegation are separate gates. A contract expresses desired scope only; it cannot grant execution authority. Without required delegation, the provider returns `UNKNOWN` and validation reports `UNRESOLVED`.

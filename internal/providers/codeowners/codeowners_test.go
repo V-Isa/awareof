@@ -293,7 +293,7 @@ func TestProviderMatchesQueriedSymlinkByLogicalPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	results, err := provider.Evaluate(context.Background(), provider.Repository{Root: root}, paths, []provider.Provider{New()})
+	results, err := provider.Evaluate(context.Background(), provider.EvaluationContext{}, provider.Repository{Root: root}, paths, []provider.Provider{New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestProviderContractAndHumanOutput(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "CODEOWNERS", "src/** @payments-team\n")
 	paths := []scope.Path{"src/payments/service.go", "legacy/file.go"}
-	results, err := provider.Evaluate(context.Background(), provider.Repository{Root: root}, paths, []provider.Provider{New()})
+	results, err := provider.Evaluate(context.Background(), provider.EvaluationContext{}, provider.Repository{Root: root}, paths, []provider.Provider{New()})
 	if err != nil {
 		t.Fatal(err)
 	}
