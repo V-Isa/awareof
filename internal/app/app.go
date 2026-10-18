@@ -38,7 +38,7 @@ Common workflows:
   awareof --setup                 review and approve native tools
   awareof .env                    inspect one path
   awareof src/                    inspect a directory recursively
-  awareof --validate              validate the repository contract
+  awareof --validate              validate the .awareof.yaml contract
   awareof --staged --validate     validate staged paths
   awareof --changed-from main     inspect paths changed from main
 
@@ -50,13 +50,13 @@ Paths:
   -                        paths from stdin
 
 Options:
-  --setup                  discover and approve native tools safely
-  --allow-repo-code IDS    let supported providers load repository code once
+  --setup                  discover tools; prompt to approve only in a terminal
+  --allow-repo-code IDS    delegate repository code to eslint or jest; invocation only
   --validate               validate the repository contract
   --staged                 inspect paths staged in Git
   --changed-from REF       inspect tracked paths changed from Git revision REF
   --literal                treat positional paths as literal, not globs
-  --json                   write JSON
+  --json                   write versioned machine-readable JSON
   -q, --quiet              suppress validation output
   -C, --root DIR           use DIR as the repository root
   -0, --null-input         read NUL-delimited paths from stdin
@@ -69,10 +69,25 @@ Native-tool options:
   --approve-tool ID        approve the resolved entry point; repeatable
   --revoke-tool ID         revoke all approvals for a tool; repeatable
 
-Repository-code delegation is explicit, invocation-only, and not sandboxed.
+Results:
+  IN       path belongs to the provider's effective scope
+  OUT      path does not belong to the provider's effective scope
+  N/A      provider does not meaningfully apply to the path
+  UNKNOWN  effective state could not be established safely and reliably
+
+Exit codes:
+  0  successful inspection or satisfied validation
+  1  validation mismatch or unresolved assertion
+  2  usage, configuration, provider, or runtime error
+
+Providers: git, docker, eas, codeowners, npm, prettier, typescript, eslint, jest.
+Requested output uses stdout; diagnostics use stderr.
+Repository-code delegation is invocation-only and not sandboxed. Delegated
+code runs with your user privileges.
 `
 
-var Version = "dev"
+// Version overrides the version reported by the CLI when set at build time.
+var Version string
 
 type options struct {
 	json          bool
@@ -206,7 +221,7 @@ func run(
 		return 0
 	}
 	if opts.version {
-		if _, err := fmt.Fprintf(stdout, "awareof %s\n", Version); err != nil {
+		if _, err := fmt.Fprintf(stdout, "awareof %s\n", currentVersion()); err != nil {
 			writeError(stderr, "output/write", "cannot write version", err.Error())
 			return 2
 		}

@@ -629,6 +629,27 @@ func TestRunHelpAndVersion(t *testing.T) {
 	}
 }
 
+func TestHelpTextDocumentsPublicContract(t *testing.T) {
+	t.Parallel()
+	for _, fragment := range []string{
+		"awareof --setup",
+		"awareof --validate",
+		"awareof --staged --validate",
+		"awareof --changed-from main",
+		"--allow-repo-code IDS",
+		"IN       path belongs",
+		"UNKNOWN  effective state could not be established safely and reliably",
+		"1  validation mismatch or unresolved assertion",
+		"Providers: git, docker, eas, codeowners, npm, prettier, typescript, eslint, jest.",
+		"Requested output uses stdout; diagnostics use stderr.",
+		"code runs with your user privileges.",
+	} {
+		if !strings.Contains(helpText, fragment) {
+			t.Errorf("help text does not contain %q", fragment)
+		}
+	}
+}
+
 func TestRunPublicEntryPointOutsideExplicitRoot(t *testing.T) {
 	root := t.TempDir()
 	var stdout, stderr bytes.Buffer
