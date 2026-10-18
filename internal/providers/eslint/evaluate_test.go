@@ -86,7 +86,7 @@ func TestEvaluateUsesFixedDelegatedESLintAPI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(content) != eslintHelper || info.Mode().Perm() != 0o600 {
+		if string(content) != eslintHelper || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("helper content/mode = %d bytes/%#o", len(content), info.Mode().Perm())
 		}
 		return runner.response, nil
