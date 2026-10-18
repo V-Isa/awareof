@@ -33,6 +33,7 @@ The user may explicitly delegate that authority to a named provider for one invo
 
 ```sh
 awareof --allow-repo-code=eslint src/app.ts
+awareof --allow-repo-code=jest '**/*.test.ts'
 ```
 
 Delegation is provider-specific, invocation-only, nonpersistent, and noninteractive. There is no `all` shortcut. A contract cannot grant it. Native-tool approval and repository-code delegation are independent: approval permits `awareof` to start the selected tool, while delegation permits the named provider's fixed evaluator to load repository-controlled configuration and modules.
@@ -86,5 +87,7 @@ Prettier eligibility inspection uses an approved external native Node executable
 TypeScript Program inspection uses a safely derived or explicitly selected evaluator. TypeScript 6 uses an external `lib/_tsc.js` through separately approved external Node. TypeScript 7 uses the platform package's native `lib/tsc`. The provider compares bounded compiler-input fingerprints before and after evaluation. It does not run `.bin/tsc`, npm commands, package scripts, or repository-local TypeScript 6 JavaScript. See [the TypeScript provider contract](providers/typescript.md).
 
 ESLint eligibility inspection uses an approved external native executable file named `node` and the repository's installed ESLint API entry point. The file-format check rejects scripts and obvious shims; it is not proof of the executable's publisher or behavior. The provider loads the explicitly selected context-root flat config only after `--allow-repo-code=eslint`. The helper and API call are fixed, but the delegated config and anything it imports are arbitrary repository-controlled code. No package script, npm command, npx command, Expo command, or shell is used. See [the ESLint provider contract](providers/eslint.md).
+
+Jest test-file inspection uses an approved external native executable file named `node` and the repository's installed Jest CLI entry. The provider runs a fixed `--listTests --json --no-cache --no-watchman` operation with an explicit repository-contained config, or an `awareof`-owned default config, only after `--allow-repo-code=jest`. Jest configuration, presets, resolvers, sequencers, and their imports are arbitrary repository-controlled code. `awareof` does not start a test run or use a package script, npm, npx, or a shell. See [the Jest provider contract](providers/jest.md).
 
 Docker context membership uses Docker's official Go matcher. CODEOWNERS uses a safe parser. Neither executes a native tool.

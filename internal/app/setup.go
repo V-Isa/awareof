@@ -15,6 +15,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
+	"github.com/V-Isa/awareof/internal/providers/jest"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
@@ -26,6 +27,7 @@ const maxSetupAnswerBytes = 1024
 
 type nativeProviders struct {
 	git        *git.Provider
+	jest       *jest.Provider
 	npm        *npm.Provider
 	eslint     *eslint.Provider
 	prettier   *prettier.Provider
@@ -169,6 +171,16 @@ func relevantNativeTools(
 			return nil, fmt.Errorf("detect ESLint provider: %w", err)
 		}
 		for _, selection := range providers.eslint.SetupSelections(root, eslintInstances) {
+			relevant[selection] = struct{}{}
+		}
+	}
+
+	if providers.jest != nil {
+		jestInstances, err := providers.jest.Detect(ctx, repo)
+		if err != nil {
+			return nil, fmt.Errorf("detect Jest provider: %w", err)
+		}
+		for _, selection := range providers.jest.SetupSelections(root, jestInstances) {
 			relevant[selection] = struct{}{}
 		}
 	}

@@ -6,7 +6,7 @@
 - Exact, directory, glob, and stdin queries.
 - Git staged and changed-from path sources.
 - Four-state provider contract.
-- Git, Docker, EAS, CODEOWNERS, npm, Prettier, TypeScript, and ESLint providers.
+- Git, Docker, EAS, CODEOWNERS, npm, Prettier, TypeScript, ESLint, and Jest providers.
 - Sparse `.awareof.yaml` validation contracts.
 - Human and JSON output.
 - Explicit approval for native executables.
@@ -15,7 +15,6 @@
 
 ## Next engineering slices
 
-- Jest effective test-file membership.
 - Broader EAS modes and Compose/Bake Docker-context discovery.
 - Git archive membership including `.gitattributes` `export-ignore`.
 - Lossless directory and instance aggregation.

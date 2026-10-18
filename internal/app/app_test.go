@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/provider"
 	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
+	"github.com/V-Isa/awareof/internal/providers/jest"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
@@ -1077,6 +1078,12 @@ func TestRelevantNativeTools(t *testing.T) {
 			"node_modules/eslint/package.json": `{"name":"eslint","version":"9.39.5"}`,
 			"node_modules/eslint/lib/api.js":   "module.exports = {};",
 		}, want: toolSelections("node")},
+		{name: "Jest package context", files: map[string]string{
+			"package.json":                   `{"private":true,"devDependencies":{"jest":"29.7.0"}}`,
+			"jest.config.js":                 "module.exports = {};",
+			"node_modules/jest/package.json": `{"name":"jest","version":"29.7.0"}`,
+			"node_modules/jest/bin/jest.js":  "require('jest-cli/bin/jest');",
+		}, want: toolSelections("node")},
 		{name: "TypeScript 6 project", files: map[string]string{
 			"tsconfig.json":                        `{}`,
 			"node_modules/typescript/package.json": `{"name":"typescript","version":"6.0.3"}`,
@@ -1107,6 +1114,7 @@ func TestRelevantNativeTools(t *testing.T) {
 				git:        git.New(runner),
 				npm:        npm.New(runner),
 				eslint:     eslint.New(runner, appTargetDiscoverer{}),
+				jest:       jest.New(runner, appTargetDiscoverer{}),
 				prettier:   prettier.New(runner, appTargetDiscoverer{}),
 				typescript: typescript.New(runner, appTargetDiscoverer{}),
 			})
