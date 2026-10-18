@@ -51,7 +51,7 @@ awareof --changed-from main
 
 ## Status
 
-`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, Prettier file eligibility, and effective TypeScript Program membership. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
+`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, Prettier file eligibility, effective TypeScript Program membership, and delegated ESLint eligibility. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
 
 Install the command from source with Go:
 
@@ -85,6 +85,14 @@ For npm, `IN` means the path appears in npm's script-disabled dry-run tarball. A
 For Prettier, `IN` means at least one safely evaluated package context considers the path supported and nonignored. `OUT` means every applicable context ignores it or infers no parser. Evaluation requires exact approved external Node and Prettier 3.x package identities. Executable, shareable, or plugin-bearing configs return `UNKNOWN` without being imported. See [the exact provider semantics](docs/providers/prettier.md).
 
 For TypeScript, `IN` means at least one safely evaluated effective Program contains the path. `OUT` means every discovered Program resolved and none contains it. An unresolved compiler or project makes a path `UNKNOWN` unless another resolved Program already proves `IN`. TypeScript 6 and 7 require exact approved evaluators; `awareof` never runs `.bin/tsc` or repository-local TypeScript 6 JavaScript. See [the exact provider semantics](docs/providers/typescript.md).
+
+For ESLint, `IN` means at least one effective flat configuration selects the path. `OUT` means every applicable context resolves and ignores or does not configure it. Loading effective ESLint configuration executes repository-controlled code, so normal inspection returns `UNKNOWN`. Explicitly delegate that authority for one invocation only when you trust the repository:
+
+```sh
+awareof --allow-repo-code=eslint src/app.ts
+```
+
+The provider uses an approved external Node executable and the repository's installed ESLint 9 or 10 API directly. It does not run ESLint scripts, npm, npx, or Expo lint. See [the exact provider semantics](docs/providers/eslint.md).
 
 ## Path sources
 
@@ -146,6 +154,8 @@ awareof --revoke-tool git
 
 Approvals are stored in the platform user configuration directory, outside repositories. They are bound to the entry point's resolved path and SHA-256 digest. A repository-local entry point is also bound to that repository. A changed or unapproved required tool produces `UNKNOWN`; it is never run implicitly. Approval is an execution gate, not a sandbox. See [native-tool execution](docs/tool-execution.md) and [the normative vocabulary](docs/terminology.md).
 
+Some providers need repository-controlled configuration to establish native truth. `--allow-repo-code=ID` grants that named provider permission for the current invocation only. It is separate from native-tool approval, is never read from `.awareof.yaml`, and does not persist. Delegated repository code runs with your user privileges and is not sandboxed.
+
 ## Development
 
 Use the Go version declared in `go.mod` or newer.
@@ -164,7 +174,7 @@ Unit tests use only Go and do not require provider tools on the host.
 make integration
 ```
 
-Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact Prettier and TypeScript package versions declared in the integration Dockerfile. It does not install Node, npm, Prettier, or TypeScript on the host.
+Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact ESLint, Prettier, and TypeScript package versions declared in the integration Dockerfile. It does not install these tools on the host.
 
 Source publication does not include compiled dependency code. Before compiled artifacts are distributed, dependency licenses and required notices must be generated, verified, and included with them.
 

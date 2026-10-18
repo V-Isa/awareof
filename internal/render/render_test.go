@@ -249,6 +249,20 @@ func TestHuman(t *testing.T) {
 	})
 }
 
+func TestToolSetupHintUsesPluralGrammar(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	if err := writeToolSetupHint(&output, []setupRequirement{
+		{tool: "git", explanation: scope.Explanation{Summary: "Git approval required"}},
+		{tool: "typescript", explanation: scope.Explanation{Summary: "TypeScript approval required"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "2 native tools require setup.") {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
 func TestSafeText(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

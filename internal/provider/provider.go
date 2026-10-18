@@ -16,10 +16,36 @@ type Repository struct {
 	Root string
 }
 
-// EvaluationContext carries core-owned context that can affect effective
-// provider semantics. It is intentionally empty until a provider needs a
-// concrete, typed field.
-type EvaluationContext struct{}
+// EvaluationContext carries invocation-scoped, core-owned authority that can
+// affect how a provider obtains effective truth. Its zero value grants no
+// authority.
+type EvaluationContext struct {
+	repositoryCode map[scope.ProviderID]struct{}
+}
+
+// NewEvaluationContext creates an immutable invocation context. The caller
+// remains responsible for accepting provider IDs only from an explicit user
+// action.
+func NewEvaluationContext(repositoryCode []scope.ProviderID) (EvaluationContext, error) {
+	allowed := make(map[scope.ProviderID]struct{}, len(repositoryCode))
+	for _, id := range repositoryCode {
+		if id == "" || !vocabulary.ValidIdentifier(string(id)) {
+			return EvaluationContext{}, fmt.Errorf("repository-code provider ID %q is invalid", id)
+		}
+		if _, exists := allowed[id]; exists {
+			return EvaluationContext{}, fmt.Errorf("repository-code provider ID %q is duplicated", id)
+		}
+		allowed[id] = struct{}{}
+	}
+	return EvaluationContext{repositoryCode: allowed}, nil
+}
+
+// RepoCodeAllowed reports whether the user explicitly delegated repository
+// code execution to this provider for the current invocation.
+func (c EvaluationContext) RepoCodeAllowed(id scope.ProviderID) bool {
+	_, allowed := c.repositoryCode[id]
+	return allowed
+}
 
 // Instance identifies one independently evaluated provider scope. Concrete
 // provider packages may retain private, typed evaluation facts on the value.
@@ -46,6 +72,13 @@ type Provider interface {
 	ID() scope.ProviderID
 	Detect(context.Context, Repository) ([]Instance, error)
 	Evaluate(context.Context, EvaluationContext, Repository, Instance, []scope.Path) ([]scope.Result, error)
+}
+
+// RepositoryCodeProvider marks a provider whose fixed evaluator can load
+// repository-controlled code after explicit invocation-scoped delegation.
+type RepositoryCodeProvider interface {
+	Provider
+	RepositoryCodePermission()
 }
 
 // IDs validates provider IDs and returns them in deterministic order.
@@ -93,6 +126,7 @@ func Select(providers []Provider, requested []scope.ProviderID) ([]Provider, err
 // instance. It enforces the provider contract before returning any facts.
 func Evaluate(
 	ctx context.Context,
+	evaluation EvaluationContext,
 	repo Repository,
 	paths []scope.Path,
 	providers []Provider,
@@ -118,7 +152,7 @@ func Evaluate(
 		}
 
 		for _, detected := range detectedInstances {
-			facts, err := current.Evaluate(ctx, EvaluationContext{}, repo, detected.instance, paths)
+			facts, err := current.Evaluate(ctx, evaluation, repo, detected.instance, paths)
 			if err != nil {
 				return nil, fmt.Errorf("evaluate provider %q instance %q: %w", current.ID(), detected.descriptor.ID, err)
 			}

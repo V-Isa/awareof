@@ -1,6 +1,6 @@
 module github.com/V-Isa/awareof
 
-go 1.26.5
+go 1.26.9
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0

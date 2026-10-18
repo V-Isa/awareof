@@ -13,6 +13,7 @@ import (
 
 	"github.com/V-Isa/awareof/internal/diagnostic"
 	"github.com/V-Isa/awareof/internal/provider"
+	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
@@ -26,6 +27,7 @@ const maxSetupAnswerBytes = 1024
 type nativeProviders struct {
 	git        *git.Provider
 	npm        *npm.Provider
+	eslint     *eslint.Provider
 	prettier   *prettier.Provider
 	typescript *typescript.Provider
 }
@@ -159,6 +161,16 @@ func relevantNativeTools(
 	if providers.npm.NeedsNativeTools(npmInstances) {
 		relevant[safeexec.Selection{Tool: "node"}] = struct{}{}
 		relevant[safeexec.Selection{Tool: "npm"}] = struct{}{}
+	}
+
+	if providers.eslint != nil {
+		eslintInstances, err := providers.eslint.Detect(ctx, repo)
+		if err != nil {
+			return nil, fmt.Errorf("detect ESLint provider: %w", err)
+		}
+		for _, selection := range providers.eslint.SetupSelections(root, eslintInstances) {
+			relevant[selection] = struct{}{}
+		}
 	}
 
 	if providers.typescript != nil {

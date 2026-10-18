@@ -6,40 +6,38 @@
 - Exact, directory, glob, and stdin queries.
 - Git staged and changed-from path sources.
 - Four-state provider contract.
-- Safe Git provider with explanations.
-- Safe repository-root Docker-context provider using Docker's official matcher.
-- Conservative EAS Git-workflow source-archive provider with inactive nested `.easignore` detection.
-- Safe local CODEOWNERS coverage provider.
-- npm publication provider with isolated, script-disabled native evaluation.
-- Prettier file eligibility with passive config snapshots and exact approved package identity.
-- Effective TypeScript Program membership with exact approved TypeScript 6 or 7 evaluators.
+- Git, Docker, EAS, CODEOWNERS, npm, Prettier, TypeScript, and ESLint providers.
 - Sparse `.awareof.yaml` validation contracts.
 - Human and JSON output.
-- Explicit path-and-digest approval for native executables.
+- Explicit approval for native executables.
+- Explicit invocation-scoped repo-code delegation for providers that require executable project configuration.
 - Formal provider, contract, provenance, and diagnostic vocabulary.
 
 ## Next engineering slices
 
+- Jest effective test-file membership.
 - Broader EAS modes and Compose/Bake Docker-context discovery.
-- Git archive provider for effective archive membership, including `.gitattributes` `export-ignore`.
-- Separate Composer and Packagist dist-parity research because their archives have additional semantics.
+- Git archive membership including `.gitattributes` `export-ignore`.
 - Lossless directory and instance aggregation.
 - Stable JSONL output.
 
-## Dogfooding and real-world validation
+## Ecosystem expansion
 
-- ESLint when effective executable configuration can be evaluated without weakening the safety contract.
-- GitHub Actions with explicit static path-scope and changed-set semantics.
-- One AI provider only when its effective file-context semantics are documented and safely readable.
+Research and dogfood additional providers only where the tool owns a meaningful repository-path scope:
 
-These systems occur in repositories where `awareof` is being used and tested. They are real dogfooding directions, not hard prerequisites for the first public release. Dogfood broadly. Promise narrowly.
+- PHP: PHPUnit, PHPStan, and Composer.
+- Java: Maven and Gradle.
+- Go: effective Go package and build membership.
+- GitHub Actions: static path filters and changed-set semantics.
+- One AI provider only when effective file-context semantics are documented and safely readable.
+
+Dogfood broadly. Promise narrowly.
 
 Provider count never overrides correctness or safety. Unsupported effective behavior returns `UNKNOWN`. A provider is deferred when that would make it mostly uninformative.
 
 ## Public source
 
 - Maintain the reviewed Go source and development repository with documented provider limits.
-- Do not require packaged binary distribution before the source repository becomes public.
 
 ## Binary distribution later
 
@@ -48,8 +46,10 @@ Provider count never overrides correctness or safety. Unsupported effective beha
 
 ## Out of scope
 
-- Executing repository-controlled code by default.
+- Implicit execution of repository-controlled code.
+- Persistent repository trust.
 - Configuration editing or automatic fixes.
 - Ignore-file synchronization.
 - Runtime provider plugins.
+- Generic repository command execution.
 - Daemon, cloud service, account, or telemetry.

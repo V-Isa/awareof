@@ -16,6 +16,7 @@ import (
 	"github.com/V-Isa/awareof/internal/providers/codeowners"
 	"github.com/V-Isa/awareof/internal/providers/docker"
 	"github.com/V-Isa/awareof/internal/providers/eas"
+	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
@@ -24,6 +25,7 @@ import (
 	"github.com/V-Isa/awareof/internal/repository"
 	"github.com/V-Isa/awareof/internal/safeexec"
 	"github.com/V-Isa/awareof/internal/scope"
+	"github.com/V-Isa/awareof/internal/vocabulary"
 )
 
 const helpText = `See which tools include, exclude, or cover each repository file.
@@ -48,6 +50,7 @@ Paths:
 
 Options:
   --setup                  discover and approve native tools safely
+  --allow-repo-code IDS    let supported providers load repository code once
   --validate               validate the repository contract
   --staged                 inspect paths staged in Git
   --changed-from REF       inspect tracked paths changed from Git revision REF
@@ -64,27 +67,30 @@ Native-tool options:
   --tool ID=PATH           select a native entry point for this invocation
   --approve-tool ID        approve the resolved entry point; repeatable
   --revoke-tool ID         revoke all approvals for a tool; repeatable
+
+Repository-code delegation is explicit, invocation-only, and not sandboxed.
 `
 
 var Version = "dev"
 
 type options struct {
-	json        bool
-	validate    bool
-	quiet       bool
-	nullInput   bool
-	literal     bool
-	root        string
-	help        bool
-	version     bool
-	setup       bool
-	tools       bool
-	staged      bool
-	changedFrom string
-	toolPaths   map[safeexec.ToolID]string
-	approve     []safeexec.ToolID
-	revoke      []safeexec.ToolID
-	paths       []string
+	json          bool
+	validate      bool
+	quiet         bool
+	nullInput     bool
+	literal       bool
+	root          string
+	help          bool
+	version       bool
+	setup         bool
+	tools         bool
+	staged        bool
+	changedFrom   string
+	allowRepoCode []scope.ProviderID
+	toolPaths     map[safeexec.ToolID]string
+	approve       []safeexec.ToolID
+	revoke        []safeexec.ToolID
+	paths         []string
 }
 
 type toolManager interface {
@@ -144,6 +150,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 	gitProvider := git.New(runner)
 	easProvider := eas.New(runner)
 	npmProvider := npm.New(runner)
+	eslintProvider := eslint.New(runner, manager)
 	prettierProvider := prettier.New(runner, manager)
 	typescriptProvider := typescript.New(runner, manager)
 	return dependencies{
@@ -163,11 +170,12 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 			return relevantNativeTools(ctx, root, nativeProviders{
 				git:        gitProvider,
 				npm:        npmProvider,
+				eslint:     eslintProvider,
 				prettier:   prettierProvider,
 				typescript: typescriptProvider,
 			})
 		},
-		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, gitProvider, npmProvider, prettierProvider, typescriptProvider},
+		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, eslintProvider, gitProvider, npmProvider, prettierProvider, typescriptProvider},
 		tools:       manager,
 		changes:     pathsource.NewGit(runner),
 		interactive: terminalInteraction,
@@ -209,7 +217,7 @@ func run(
 	hasChangeSource := opts.staged || opts.changedFrom != ""
 	hasPathRequest := len(opts.paths) > 0 || hasChangeSource || opts.nullInput || opts.literal
 	hasOutputOptions := opts.quiet || opts.json
-	hasInspectionOptions := opts.validate || hasPathRequest || hasOutputOptions
+	hasInspectionOptions := opts.validate || hasPathRequest || hasOutputOptions || len(opts.allowRepoCode) != 0
 	if managesTools && hasInspectionOptions {
 		writeDiagnostic(stderr, diagnostic.Diagnostic{Level: diagnostic.Error, Code: "cli/usage", Summary: "tool management cannot be combined with inspection, validation, or JSON output", Action: "run 'awareof --help'"})
 		return 2
@@ -242,11 +250,15 @@ func run(
 		writeDiagnostic(stderr, diagnostic.Diagnostic{Level: diagnostic.Error, Code: "cli/usage", Summary: "--literal requires at least one positional path", Action: "provide a path or remove --literal"})
 		return 2
 	}
+	evaluationContext, err := repositoryCodeContext(deps.providers, opts.allowRepoCode)
+	if err != nil {
+		writeDiagnostic(stderr, diagnostic.Diagnostic{Level: diagnostic.Error, Code: "cli/usage", Summary: err.Error(), Action: "grant authority only to a registered provider that supports repository-code delegation"})
+		return 2
+	}
 	if len(opts.paths) == 0 && !opts.validate && !managesTools && !hasChangeSource {
 		writeDiagnostic(stderr, diagnostic.Diagnostic{Level: diagnostic.Error, Code: "cli/usage", Summary: "missing path or pattern", Action: "run 'awareof --help'"})
 		return 2
 	}
-
 	cwd, err := deps.getwd()
 	if err != nil {
 		writeError(stderr, "repository/working-directory", "cannot get the working directory", err.Error())
@@ -374,7 +386,19 @@ func run(
 			return 2
 		}
 	}
-	results, err := provider.Evaluate(ctx, provider.Repository{Root: root}, paths, evaluationProviders)
+	var activeRepoCode []scope.ProviderID
+	if len(opts.allowRepoCode) != 0 {
+		activeRepoCode = activeRepositoryCodeProviders(evaluationProviders, opts.allowRepoCode)
+	}
+	if len(activeRepoCode) != 0 {
+		writeDiagnostic(stderr, diagnostic.Diagnostic{
+			Level: diagnostic.Warning, Code: "execution/repository-code-allowed",
+			Summary:  "repository-controlled configuration and modules may execute with your user privileges for this invocation",
+			Evidence: "providers: " + providerIDList(activeRepoCode),
+			Action:   "use this option only for repositories you trust; this is not sandboxed",
+		})
+	}
+	results, err := provider.Evaluate(ctx, evaluationContext, provider.Repository{Root: root}, paths, evaluationProviders)
 	if err != nil {
 		writeError(stderr, "provider/evaluation", "provider evaluation failed", err.Error())
 		return 2
@@ -451,6 +475,18 @@ func parseOptions(args []string) (options, error) {
 			opts.tools = true
 		case arg == "--setup":
 			opts.setup = true
+		case arg == "--allow-repo-code":
+			if i+1 == len(args) {
+				return options{}, errors.New("missing value for --allow-repo-code")
+			}
+			i++
+			if err := addRepoCodeProviders(&opts, args[i]); err != nil {
+				return options{}, err
+			}
+		case strings.HasPrefix(arg, "--allow-repo-code="):
+			if err := addRepoCodeProviders(&opts, strings.TrimPrefix(arg, "--allow-repo-code=")); err != nil {
+				return options{}, err
+			}
 		case arg == "--tool":
 			if i+1 == len(args) {
 				return options{}, errors.New("missing value for --tool")
@@ -524,6 +560,72 @@ func parseOptions(args []string) (options, error) {
 		}
 	}
 	return opts, nil
+}
+
+func addRepoCodeProviders(opts *options, value string) error {
+	if value == "" {
+		return errors.New("missing value for --allow-repo-code")
+	}
+	for _, name := range strings.Split(value, ",") {
+		if name == "" || strings.TrimSpace(name) != name || !vocabulary.ValidIdentifier(name) {
+			return fmt.Errorf("invalid provider list %q for --allow-repo-code", value)
+		}
+		if name == "all" {
+			return errors.New("--allow-repo-code requires explicit provider IDs; 'all' is not supported")
+		}
+		id := scope.ProviderID(name)
+		for _, existing := range opts.allowRepoCode {
+			if existing == id {
+				return fmt.Errorf("provider %q is listed more than once for --allow-repo-code", id)
+			}
+		}
+		opts.allowRepoCode = append(opts.allowRepoCode, id)
+	}
+	return nil
+}
+
+func providerIDList(ids []scope.ProviderID) string {
+	names := make([]string, len(ids))
+	for index, id := range ids {
+		names[index] = string(id)
+	}
+	return strings.Join(names, ", ")
+}
+
+func repositoryCodeContext(
+	providers []provider.Provider,
+	requested []scope.ProviderID,
+) (provider.EvaluationContext, error) {
+	if len(requested) == 0 {
+		return provider.EvaluationContext{}, nil
+	}
+	selected, err := provider.Select(providers, requested)
+	if err != nil {
+		return provider.EvaluationContext{}, fmt.Errorf("repository-code permission is invalid: %w", err)
+	}
+	for _, current := range selected {
+		if _, ok := current.(provider.RepositoryCodeProvider); !ok {
+			return provider.EvaluationContext{}, fmt.Errorf("provider %q does not support --allow-repo-code", current.ID())
+		}
+	}
+	return provider.NewEvaluationContext(requested)
+}
+
+func activeRepositoryCodeProviders(
+	providers []provider.Provider,
+	requested []scope.ProviderID,
+) []scope.ProviderID {
+	selected := make(map[scope.ProviderID]struct{}, len(providers))
+	for _, current := range providers {
+		selected[current.ID()] = struct{}{}
+	}
+	active := make([]scope.ProviderID, 0, len(requested))
+	for _, id := range requested {
+		if _, ok := selected[id]; ok {
+			active = append(active, id)
+		}
+	}
+	return active
 }
 
 func setChangedFrom(opts *options, revision string) error {
