@@ -51,7 +51,7 @@ awareof --changed-from main
 
 ## Status
 
-`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, Prettier file eligibility, effective TypeScript Program membership, and delegated ESLint eligibility. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
+`awareof` is under active development. It supports Git, repository-root Docker contexts, the default EAS Git archive, local CODEOWNERS coverage, npm publication tarballs, Prettier file eligibility, effective TypeScript Program membership, delegated ESLint eligibility, and delegated Jest test-file membership. It also supports staged and changed-from path selection and sparse validation contracts. Packaged binary distribution is not available yet.
 
 Install the command from source with Go:
 
@@ -93,6 +93,14 @@ awareof --allow-repo-code=eslint src/app.ts
 ```
 
 The provider uses an approved external Node executable and the repository's installed ESLint 9 or 10 API directly. It does not run ESLint scripts, npm, npx, or Expo lint. See [the exact provider semantics](docs/providers/eslint.md).
+
+For Jest, `IN` means at least one effective Jest context selects the path as a test file. `OUT` means every applicable resolved context does not select it. Jest discovery can load executable configuration, presets, resolvers, and sequencers, so normal inspection returns `UNKNOWN`. Explicitly delegate that authority only for a repository you trust:
+
+```sh
+awareof --allow-repo-code=jest '**/*.test.ts'
+```
+
+The provider uses an approved external Node executable and the repository's installed Jest 29 or 30 package with a fixed `--listTests` invocation. It does not use package scripts, npm, or npx, and it does not start a test run. See [the exact provider semantics](docs/providers/jest.md).
 
 ## Path sources
 
@@ -174,7 +182,7 @@ Unit tests use only Go and do not require provider tools on the host.
 make integration
 ```
 
-Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact ESLint, Prettier, and TypeScript package versions declared in the integration Dockerfile. It does not install these tools on the host.
+Integration and native-parity tests run inside a disposable Linux container. The command builds the versioned test image, then runs it without network access, host mounts, capabilities, or a writable root filesystem. The container and its fixture repositories are removed automatically; Docker may retain its normal image and build caches. The build may download the official Go and Node base images, Go modules declared in `go.sum`, and the exact ESLint, Jest, Prettier, and TypeScript package versions declared in the integration Dockerfile. It does not install these tools on the host.
 
 Source publication does not include compiled dependency code. Before compiled artifacts are distributed, dependency licenses and required notices must be generated, verified, and included with them.
 

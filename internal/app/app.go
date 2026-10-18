@@ -18,6 +18,7 @@ import (
 	"github.com/V-Isa/awareof/internal/providers/eas"
 	"github.com/V-Isa/awareof/internal/providers/eslint"
 	"github.com/V-Isa/awareof/internal/providers/git"
+	"github.com/V-Isa/awareof/internal/providers/jest"
 	"github.com/V-Isa/awareof/internal/providers/npm"
 	"github.com/V-Isa/awareof/internal/providers/prettier"
 	"github.com/V-Isa/awareof/internal/providers/typescript"
@@ -151,6 +152,7 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 	easProvider := eas.New(runner)
 	npmProvider := npm.New(runner)
 	eslintProvider := eslint.New(runner, manager)
+	jestProvider := jest.New(runner, manager)
 	prettierProvider := prettier.New(runner, manager)
 	typescriptProvider := typescript.New(runner, manager)
 	return dependencies{
@@ -169,13 +171,14 @@ func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, er
 		setupTools: func(ctx context.Context, root string) ([]safeexec.Selection, error) {
 			return relevantNativeTools(ctx, root, nativeProviders{
 				git:        gitProvider,
+				jest:       jestProvider,
 				npm:        npmProvider,
 				eslint:     eslintProvider,
 				prettier:   prettierProvider,
 				typescript: typescriptProvider,
 			})
 		},
-		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, eslintProvider, gitProvider, npmProvider, prettierProvider, typescriptProvider},
+		providers:   []provider.Provider{codeowners.New(), docker.New(), easProvider, eslintProvider, gitProvider, jestProvider, npmProvider, prettierProvider, typescriptProvider},
 		tools:       manager,
 		changes:     pathsource.NewGit(runner),
 		interactive: terminalInteraction,
