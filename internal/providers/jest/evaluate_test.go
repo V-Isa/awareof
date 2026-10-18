@@ -253,9 +253,13 @@ func TestEvaluateKeepsPathAndDiscoveryUncertaintyHonest(t *testing.T) {
 func TestParseListTests(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	inside := filepath.Join(root, "src", "line\nbreak.test.js")
+	insideName := "src/ordinary.test.js"
+	if runtime.GOOS != "windows" {
+		insideName = "src/line\nbreak.test.js"
+	}
+	inside := filepath.Join(root, filepath.FromSlash(insideName))
 	outside := filepath.Join(t.TempDir(), "outside.test.js")
-	writeFile(t, root, "src/line\nbreak.test.js", "")
+	writeFile(t, root, insideName, "")
 	writeFile(t, filepath.Dir(outside), filepath.Base(outside), "")
 	valid, _ := json.Marshal([]string{inside, outside})
 	physical, err := filepath.EvalSymlinks(root)
