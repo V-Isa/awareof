@@ -13,7 +13,7 @@ RUN npm install --prefix /opt/typescript6 --ignore-scripts --no-audit --no-fund 
     && npm install --prefix /opt/prettier399 --ignore-scripts --no-audit --no-fund --omit=dev prettier@3.9.9
 
 # Exercise the minimum supported Go line at its latest security patch.
-FROM golang:1.26.7-bookworm
+FROM golang:1.26.9-bookworm
 
 COPY --from=node-toolchain /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-toolchain /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm

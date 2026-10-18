@@ -673,7 +673,11 @@ func evaluatorFixture(t *testing.T, contextRoot, version string) (string, *fakeR
 	writeFile(t, repository, filepath.ToSlash(filepath.Join(contextRoot, "eslint.config.js")), "module.exports = [];\n")
 	writeFile(t, repository, "node_modules/eslint/package.json", `{"name":"eslint","version":"`+version+`"}`)
 	writeFile(t, repository, "node_modules/eslint/lib/api.js", "module.exports = {};\n")
-	node := filepath.Join(t.TempDir(), "node")
+	nodeName := "node"
+	if runtime.GOOS == "windows" {
+		nodeName = "node.exe"
+	}
+	node := filepath.Join(t.TempDir(), nodeName)
 	writeNativeExecutable(t, node, runtime.GOOS)
 	return repository, &fakeResolver{target: safeexec.Target{Tool: nodeTool, Path: node, Origin: safeexec.ExternalOrigin}}
 }
