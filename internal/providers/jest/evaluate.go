@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/V-Isa/awareof/internal/nodeexec"
 	"github.com/V-Isa/awareof/internal/pathutil"
 	"github.com/V-Isa/awareof/internal/safeexec"
 	"github.com/V-Isa/awareof/internal/scope"
@@ -274,43 +275,7 @@ func canonicalPathKey(name string) string {
 }
 
 func validateNodeExecutable(name, goos string) error {
-	base := strings.ToLower(filepath.Base(name))
-	if (goos == "windows" && base != "node.exe") || (goos != "windows" && base != "node") {
-		return fmt.Errorf("resolved path is %q", name)
-	}
-	file, err := os.Open(name) //nolint:gosec // name is the approved external target.
-	if err != nil {
-		return err
-	}
-	var header [4]byte
-	_, readErr := io.ReadFull(file, header[:])
-	closeErr := file.Close()
-	if readErr != nil {
-		return readErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	valid := false
-	switch goos {
-	case "linux":
-		valid = bytes.Equal(header[:], []byte{0x7f, 'E', 'L', 'F'})
-	case "darwin":
-		valid = bytes.Equal(header[:], []byte{0xfe, 0xed, 0xfa, 0xce}) ||
-			bytes.Equal(header[:], []byte{0xce, 0xfa, 0xed, 0xfe}) ||
-			bytes.Equal(header[:], []byte{0xfe, 0xed, 0xfa, 0xcf}) ||
-			bytes.Equal(header[:], []byte{0xcf, 0xfa, 0xed, 0xfe}) ||
-			bytes.Equal(header[:], []byte{0xca, 0xfe, 0xba, 0xbe}) ||
-			bytes.Equal(header[:], []byte{0xbe, 0xba, 0xfe, 0xca})
-	case "windows":
-		valid = bytes.Equal(header[:2], []byte{'M', 'Z'})
-	default:
-		return fmt.Errorf("platform %q is not supported", goos)
-	}
-	if !valid {
-		return fmt.Errorf("entry point is not a recognized native executable for %s", goos)
-	}
-	return nil
+	return nodeexec.ValidateForPlatform(name, goos)
 }
 
 func rejectSymlinkPath(repositoryRoot, logical string) error {

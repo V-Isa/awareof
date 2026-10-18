@@ -74,6 +74,8 @@ awareof --revoke-tool git
 
 `--setup` determines which registered tools the detected native-backed providers can use, then discovers only those tools. It does not run them. It shows each path, digest, origin, and trust status. In a terminal, one confirmation can approve all unapproved external tools. Repository-controlled tools need separate approval and remain repository-scoped. Before approval, `awareof` resolves and hashes the displayed identity again. A change stops approval. Without an interactive terminal, setup reports status but does not prompt or change approvals.
 
+Node discovery accepts only a native executable named `node` (`node.exe` on Windows). It rejects scripts and obvious version-manager shims without running them. If PATH resolves to such a shim, `awareof` reuses one still-valid approved external Node target. Multiple approved candidates require an explicit `--tool node=/absolute/path` selection. Setup also reports the exact project version and entry-point form required when a matching Prettier or TypeScript evaluator is unavailable; it never installs one.
+
 The low-level commands are explicit and noninteractive. They support deterministic CI setup. Normal inspection never pauses for a prompt.
 
 ## Current native use

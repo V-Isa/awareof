@@ -129,6 +129,7 @@ func (p *Provider) SetupSelections(root string, instances []provider.Instance) (
 		return []safeexec.Selection{}, nil
 	}
 	selections := make(map[safeexec.Selection]struct{})
+	missing := make(map[string]int)
 	typeScriptSelected := false
 	if target, err := p.discoverer.Discover(root, typescriptTool); err == nil && target.Path != "" {
 		selections[safeexec.Selection{Tool: typescriptTool, Path: target.Path}] = struct{}{}
@@ -157,17 +158,15 @@ func (p *Provider) SetupSelections(root string, instances []provider.Instance) (
 			for _, candidate := range candidates {
 				selections[safeexec.Selection{Tool: typescriptTool, Path: candidate.Path}] = struct{}{}
 			}
+			if len(candidates) == 0 {
+				missing[installation.version] = installation.major
+			}
 		}
 	}
 	if !typeScriptSelected {
-		hasCandidate := false
-		for selection := range selections {
-			if selection.Tool == typescriptTool {
-				hasCandidate = true
-				break
-			}
-		}
-		if !hasCandidate {
+		if len(missing) != 0 {
+			selections[typeScriptRequirementSelection(missing)] = struct{}{}
+		} else if !hasToolSelection(selections, typescriptTool) {
 			selections[safeexec.Selection{Tool: typescriptTool}] = struct{}{}
 		}
 	}
@@ -179,9 +178,61 @@ func (p *Provider) SetupSelections(root string, instances []provider.Instance) (
 		if left.Tool != right.Tool {
 			return strings.Compare(string(left.Tool), string(right.Tool))
 		}
-		return strings.Compare(left.Path, right.Path)
+		if left.Path != right.Path {
+			return strings.Compare(left.Path, right.Path)
+		}
+		if left.Evidence != right.Evidence {
+			return strings.Compare(left.Evidence, right.Evidence)
+		}
+		return strings.Compare(left.Action, right.Action)
 	})
 	return result, nil
+}
+
+func hasToolSelection(selections map[safeexec.Selection]struct{}, tool safeexec.ToolID) bool {
+	for selection := range selections {
+		if selection.Tool == tool {
+			return true
+		}
+	}
+	return false
+}
+
+func typeScriptRequirementSelection(requirements map[string]int) safeexec.Selection {
+	versions := make([]string, 0, len(requirements))
+	for version := range requirements {
+		versions = append(versions, version)
+	}
+	slices.Sort(versions)
+	if len(versions) == 1 {
+		version := versions[0]
+		entry := "platform package lib/tsc"
+		if requirements[version] == 6 {
+			entry = "typescript/lib/_tsc.js"
+		}
+		action := fmt.Sprintf(
+			"select the TypeScript %s %s entry point with --tool typescript=/absolute/path",
+			version,
+			entry,
+		)
+		if requirements[version] == 6 {
+			action = fmt.Sprintf(
+				"select %s from an external TypeScript %s installation with --tool typescript=/absolute/path",
+				entry,
+				version,
+			)
+		}
+		return safeexec.Selection{
+			Tool:     typescriptTool,
+			Evidence: fmt.Sprintf("required project version: TypeScript %s", version),
+			Action:   action,
+		}
+	}
+	return safeexec.Selection{
+		Tool:     typescriptTool,
+		Evidence: "required project versions: TypeScript " + strings.Join(versions, ", "),
+		Action:   "select matching external TypeScript compiler entry points with --tool typescript=/absolute/path",
+	}
 }
 
 type unionEvaluation struct {

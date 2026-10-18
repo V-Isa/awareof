@@ -143,8 +143,12 @@ func TestSetupSelections(t *testing.T) {
 		version string
 		want    []safeexec.Selection
 	}{
-		{name: "TypeScript 6 needs Node", version: "6.0.3", want: []safeexec.Selection{{Tool: "node"}, {Tool: "typescript"}}},
-		{name: "TypeScript 7 is native", version: "7.0.2", want: []safeexec.Selection{{Tool: "typescript"}}},
+		{name: "TypeScript 6 needs Node", version: "6.0.3", want: []safeexec.Selection{
+			{Tool: "node"}, typeScriptRequirementSelection(map[string]int{"6.0.3": 6}),
+		}},
+		{name: "TypeScript 7 is native", version: "7.0.2", want: []safeexec.Selection{
+			typeScriptRequirementSelection(map[string]int{"7.0.2": 7}),
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1092,7 +1092,14 @@ func TestRelevantNativeTools(t *testing.T) {
 			"package.json":                       `{"private":true,"devDependencies":{"prettier":"3.9.9"}}`,
 			"node_modules/prettier/package.json": `{"name":"prettier","version":"3.9.9"}`,
 			"node_modules/prettier/index.mjs":    "export {};",
-		}, want: toolSelections("node", "prettier")},
+		}, want: []safeexec.Selection{
+			{Tool: "node"},
+			{
+				Tool:     "prettier",
+				Evidence: "required project version: Prettier 3.9.9",
+				Action:   "select prettier/index.mjs from an external Prettier 3.9.9 installation with --tool prettier=/absolute/path",
+			},
+		}},
 		{name: "ESLint package context", files: map[string]string{
 			"package.json":                     `{"private":true,"devDependencies":{"eslint":"9.39.5"}}`,
 			"eslint.config.js":                 "module.exports = [];",
@@ -1110,7 +1117,14 @@ func TestRelevantNativeTools(t *testing.T) {
 			"node_modules/typescript/package.json": `{"name":"typescript","version":"6.0.3"}`,
 			"node_modules/typescript/lib/_tsc.js":  "compiler",
 			"node_modules/typescript/lib/lib.d.ts": "standard library",
-		}, want: toolSelections("node", "typescript")},
+		}, want: []safeexec.Selection{
+			{Tool: "node"},
+			{
+				Tool:     "typescript",
+				Evidence: "required project version: TypeScript 6.0.3",
+				Action:   "select typescript/lib/_tsc.js from an external TypeScript 6.0.3 installation with --tool typescript=/absolute/path",
+			},
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

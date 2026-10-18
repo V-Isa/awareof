@@ -32,9 +32,10 @@ type ToolID string
 
 // Tool declares one native entry point that awareof knows how to use safely.
 type Tool struct {
-	ID                ToolID
-	Command           string
-	SelectionRequired bool
+	ID                 ToolID
+	Command            string
+	SelectionRequired  bool
+	ValidateEntryPoint func(string) error
 }
 
 // Origin identifies who controls the resolved entry-point path.
@@ -64,10 +65,13 @@ type Status struct {
 }
 
 // Selection identifies either a tool's default entry point or one exact path
-// derived by a provider without executing it.
+// derived by a provider without executing it. Evidence and Action refine an
+// unavailable explicit-selection status.
 type Selection struct {
-	Tool ToolID
-	Path string
+	Tool     ToolID
+	Path     string
+	Evidence string
+	Action   string
 }
 
 // ApprovalState is the normalized user-facing state of a tool approval.
@@ -618,7 +622,49 @@ func (m *Manager) Discover(root string, id ToolID) (Target, error) {
 			candidate = filepath.Join(root, candidate)
 		}
 	}
-	return m.discover(root, id, candidate, !overridden)
+	target, err := m.discover(root, id, candidate, !overridden)
+	if err != nil {
+		return Target{}, err
+	}
+	validationErr := validateEntryPoint(tool, target)
+	if validationErr == nil {
+		return target, nil
+	}
+	if overridden {
+		return Target{}, validationErr
+	}
+	return m.approvedFallback(root, id, validationErr)
+}
+
+func (m *Manager) approvedFallback(root string, id ToolID, validationErr error) (Target, error) {
+	approved, err := m.ApprovedTargets(root, id)
+	if err != nil {
+		return Target{}, err
+	}
+	external := make([]Target, 0, len(approved))
+	for _, candidate := range approved {
+		if candidate.Origin == ExternalOrigin {
+			external = append(external, candidate)
+		}
+	}
+	switch len(external) {
+	case 1:
+		return external[0], nil
+	case 0:
+		return Target{}, validationErr
+	default:
+		paths := make([]string, len(external))
+		for index, candidate := range external {
+			paths[index] = candidate.Path
+		}
+		return Target{}, &UnavailableError{
+			Tool:     id,
+			Code:     "tool/selection-required",
+			Summary:  fmt.Sprintf("tool %q has multiple approved supported entry points", id),
+			Evidence: strings.Join(paths, ", "),
+			Action:   fmt.Sprintf("select one with --tool %s=/absolute/path", id),
+		}
+	}
 }
 
 // DiscoverAt identifies one provider-derived entry point without executing it.
@@ -635,7 +681,31 @@ func (m *Manager) DiscoverAt(root string, id ToolID, candidate string) (Target, 
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(root, candidate)
 	}
-	return m.discover(root, id, candidate, false)
+	target, err := m.discover(root, id, candidate, false)
+	if err != nil {
+		return Target{}, err
+	}
+	if err := validateEntryPoint(m.tools[id], target); err != nil {
+		return Target{}, err
+	}
+	return target, nil
+}
+
+func validateEntryPoint(tool Tool, target Target) error {
+	if tool.ValidateEntryPoint == nil {
+		return nil
+	}
+	if err := tool.ValidateEntryPoint(target.Path); err != nil {
+		return &UnavailableError{
+			Tool:     tool.ID,
+			Code:     "tool/entry-point-unsupported",
+			Summary:  fmt.Sprintf("tool %q entry point is not supported", tool.ID),
+			Evidence: err.Error(),
+			Action:   fmt.Sprintf("select a supported entry point with --tool %s=/absolute/path", tool.ID),
+			cause:    err,
+		}
+	}
+	return nil
 }
 
 func (m *Manager) discover(root string, id ToolID, candidate string, usePath bool) (Target, error) {
@@ -824,7 +894,13 @@ func (m *Manager) StatusesForSelections(root string, requested []Selection) []St
 		if selections[i].Tool != selections[j].Tool {
 			return selections[i].Tool < selections[j].Tool
 		}
-		return selections[i].Path < selections[j].Path
+		if selections[i].Path != selections[j].Path {
+			return selections[i].Path < selections[j].Path
+		}
+		if selections[i].Evidence != selections[j].Evidence {
+			return selections[i].Evidence < selections[j].Evidence
+		}
+		return selections[i].Action < selections[j].Action
 	})
 	statuses := make([]Status, 0, len(selections))
 	for _, selection := range selections {
@@ -840,6 +916,7 @@ func (m *Manager) StatusesForSelections(root string, requested []Selection) []St
 			if !ok {
 				problem = &UnavailableError{Tool: selection.Tool, Code: "tool/discovery-failed", Summary: fmt.Sprintf("cannot inspect tool %q", selection.Tool), Evidence: err.Error()}
 			}
+			problem = selectionProblem(problem, selection)
 			statuses = append(statuses, Status{Tool: selection.Tool, State: UnavailableState, Problem: problem})
 			continue
 		}
@@ -857,6 +934,20 @@ func (m *Manager) StatusesForSelections(root string, requested []Selection) []St
 		statuses = append(statuses, Status{Tool: selection.Tool, Target: target, State: state})
 	}
 	return statuses
+}
+
+func selectionProblem(problem *UnavailableError, selection Selection) *UnavailableError {
+	if problem == nil || problem.Code != "tool/selection-required" {
+		return problem
+	}
+	copy := *problem
+	if selection.Evidence != "" {
+		copy.Evidence = selection.Evidence
+	}
+	if selection.Action != "" {
+		copy.Action = selection.Action
+	}
+	return &copy
 }
 
 func validateTool(tool Tool) error {
