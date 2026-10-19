@@ -287,11 +287,12 @@ func (p *Provider) selectEvaluator(root string, project compilerInstallation) (s
 	if len(candidates) != 0 {
 		return candidates[0], nil, nil
 	}
+	requirement := typeScriptRequirementSelection(map[string]int{project.version: project.major})
 	return safeexec.Target{}, unavailable(
 		"typescript/evaluator-selection-required",
 		"no safe matching TypeScript evaluator was discovered",
 		fmt.Sprintf("project uses TypeScript %s", project.version),
-		"select a matching evaluator with --tool typescript=/absolute/path and run awareof --setup",
+		requirement.Action+" and run awareof --setup",
 	), nil
 }
 

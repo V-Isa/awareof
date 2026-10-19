@@ -165,9 +165,35 @@ func (p *Provider) SetupSelections(root string, instances []provider.Instance) (
 		}
 	}
 	if len(matched) != len(requirements) {
-		selections[safeexec.Selection{Tool: prettierTool}] = struct{}{}
+		versions := make([]string, 0, len(requirements)-len(matched))
+		seenVersions := make(map[string]struct{})
+		for requirement := range requirements {
+			if _, ok := matched[requirement]; ok {
+				continue
+			}
+			if _, seen := seenVersions[requirement.version]; seen {
+				continue
+			}
+			seenVersions[requirement.version] = struct{}{}
+			versions = append(versions, requirement.version)
+		}
+		slices.Sort(versions)
+		selections[prettierRequirementSelection(versions)] = struct{}{}
 	}
 	return orderedSelections(selections), nil
+}
+
+func prettierRequirementSelection(versions []string) safeexec.Selection {
+	evidence := "required project versions: Prettier " + strings.Join(versions, ", ")
+	action := "select matching external prettier/index.mjs entry points with --tool prettier=/absolute/path"
+	if len(versions) == 1 {
+		evidence = "required project version: Prettier " + versions[0]
+		action = fmt.Sprintf(
+			"select prettier/index.mjs from an external Prettier %s installation with --tool prettier=/absolute/path",
+			versions[0],
+		)
+	}
+	return safeexec.Selection{Tool: prettierTool, Evidence: evidence, Action: action}
 }
 
 func orderedSelections(selections map[safeexec.Selection]struct{}) []safeexec.Selection {
@@ -179,7 +205,13 @@ func orderedSelections(selections map[safeexec.Selection]struct{}) []safeexec.Se
 		if left.Tool != right.Tool {
 			return strings.Compare(string(left.Tool), string(right.Tool))
 		}
-		return strings.Compare(left.Path, right.Path)
+		if left.Path != right.Path {
+			return strings.Compare(left.Path, right.Path)
+		}
+		if left.Evidence != right.Evidence {
+			return strings.Compare(left.Evidence, right.Evidence)
+		}
+		return strings.Compare(left.Action, right.Action)
 	})
 	return result
 }

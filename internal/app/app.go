@@ -10,6 +10,7 @@ import (
 
 	"github.com/V-Isa/awareof/internal/contract"
 	"github.com/V-Isa/awareof/internal/diagnostic"
+	"github.com/V-Isa/awareof/internal/nodeexec"
 	"github.com/V-Isa/awareof/internal/pathset"
 	"github.com/V-Isa/awareof/internal/pathsource"
 	"github.com/V-Isa/awareof/internal/provider"
@@ -154,7 +155,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 func defaultDependencies(approvalStore safeexec.ApprovalStore) (dependencies, error) {
 	manager, err := safeexec.NewManager([]safeexec.Tool{
 		{ID: "git", Command: "git"},
-		{ID: "node", Command: "node"},
+		{ID: "node", Command: "node", ValidateEntryPoint: nodeexec.Validate},
 		{ID: "npm", Command: "npm"},
 		{ID: "prettier", SelectionRequired: true},
 		{ID: "typescript", SelectionRequired: true},

@@ -264,6 +264,122 @@ func TestManagerRequiresExplicitSelection(t *testing.T) {
 	}
 }
 
+func TestManagerValidatedDefaultCandidateFallback(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	store := FileApprovalStore{Path: filepath.Join(t.TempDir(), "approvals.json")}
+	bad := writeToolFixture(t, t.TempDir(), "bad")
+	goodOne := writeToolFixture(t, t.TempDir(), "good-one")
+	goodTwo := writeToolFixture(t, t.TempDir(), "good-two")
+	validate := func(path string) error {
+		if strings.Contains(filepath.Base(path), "good") {
+			return nil
+		}
+		return errors.New("version-manager shim")
+	}
+	manager, err := NewManager([]Tool{{ID: "node", Command: bad, ValidateEntryPoint: validate}}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = manager.Discover(repository, "node")
+	problem, ok := AsUnavailable(err)
+	if !ok || problem.Code != "tool/entry-point-unsupported" || !strings.Contains(problem.Evidence, "version-manager shim") {
+		t.Fatalf("Discover() error = %v, want unsupported entry point", err)
+	}
+
+	approvePath(t, manager, repository, "node", goodOne)
+	target, err := manager.Discover(repository, "node")
+	if err != nil || target.Path != resolvedPath(t, goodOne) {
+		t.Fatalf("Discover() = %+v, %v; want sole approved supported target", target, err)
+	}
+	resolved, err := manager.Resolve(repository, "node")
+	if err != nil || resolved.Path != target.Path {
+		t.Fatalf("Resolve() = %+v, %v; want approved fallback", resolved, err)
+	}
+
+	approvePath(t, manager, repository, "node", goodTwo)
+	_, err = manager.Discover(repository, "node")
+	problem, ok = AsUnavailable(err)
+	if !ok || problem.Code != "tool/selection-required" ||
+		!strings.Contains(problem.Evidence, resolvedPath(t, goodOne)) ||
+		!strings.Contains(problem.Evidence, resolvedPath(t, goodTwo)) {
+		t.Fatalf("Discover() error = %v, want ambiguous approved targets", err)
+	}
+}
+
+func TestManagerValidatedDefaultDoesNotReplaceSupportedCandidate(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	store := FileApprovalStore{Path: filepath.Join(t.TempDir(), "approvals.json")}
+	current := writeToolFixture(t, t.TempDir(), "current")
+	approved := writeToolFixture(t, t.TempDir(), "approved")
+	manager, err := NewManager([]Tool{{
+		ID: "node", Command: current,
+		ValidateEntryPoint: func(string) error { return nil },
+	}}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvePath(t, manager, repository, "node", approved)
+	target, err := manager.Discover(repository, "node")
+	if err != nil || target.Path != resolvedPath(t, current) {
+		t.Fatalf("Discover() = %+v, %v; want current supported candidate", target, err)
+	}
+	_, err = manager.Resolve(repository, "node")
+	problem, ok := AsUnavailable(err)
+	if !ok || problem.Code != "tool/not-approved" {
+		t.Fatalf("Resolve() error = %v, want current candidate approval", err)
+	}
+}
+
+func TestManagerValidatedExplicitSelectionDoesNotFallback(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	store := FileApprovalStore{Path: filepath.Join(t.TempDir(), "approvals.json")}
+	bad := writeToolFixture(t, t.TempDir(), "bad")
+	good := writeToolFixture(t, t.TempDir(), "good")
+	manager, err := NewManager([]Tool{{
+		ID: "node", Command: bad,
+		ValidateEntryPoint: func(path string) error {
+			if strings.Contains(filepath.Base(path), "good") {
+				return nil
+			}
+			return errors.New("unsupported")
+		},
+	}}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvePath(t, manager, repository, "node", good)
+	if err := manager.SetOverrides(map[ToolID]string{"node": bad}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.Discover(repository, "node")
+	problem, ok := AsUnavailable(err)
+	if !ok || problem.Code != "tool/entry-point-unsupported" {
+		t.Fatalf("Discover() error = %v, want explicit unsupported selection", err)
+	}
+}
+
+func TestStatusesForSelectionsUsesRequirementGuidance(t *testing.T) {
+	t.Parallel()
+	manager, err := NewManager([]Tool{{ID: "prettier", SelectionRequired: true}}, &fakeApprovalStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection := Selection{
+		Tool:     "prettier",
+		Evidence: "required project version: Prettier 3.8.5",
+		Action:   "select prettier/index.mjs",
+	}
+	statuses := manager.StatusesForSelections(t.TempDir(), []Selection{selection})
+	if len(statuses) != 1 || statuses[0].Problem == nil ||
+		statuses[0].Problem.Evidence != selection.Evidence || statuses[0].Problem.Action != selection.Action {
+		t.Fatalf("StatusesForSelections() = %+v, want provider guidance", statuses)
+	}
+}
+
 func TestManagerProviderDerivedSelectionCanBeApprovedAndReused(t *testing.T) {
 	t.Parallel()
 	repository := t.TempDir()
@@ -454,6 +570,35 @@ func testExecutableName(name string) string {
 		return name + ".exe"
 	}
 	return name
+}
+
+func writeToolFixture(t *testing.T, root, name string) string {
+	t.Helper()
+	path := filepath.Join(root, testExecutableName(name))
+	if err := os.WriteFile(path, []byte("fixture"), 0o700); err != nil { //nolint:gosec // isolated tool fixture
+		t.Fatal(err)
+	}
+	return path
+}
+
+func resolvedPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func approvePath(t *testing.T, manager *Manager, root string, tool ToolID, path string) {
+	t.Helper()
+	target, err := manager.DiscoverAt(root, tool, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveTarget(root, target); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type fakeApprovalStore struct {

@@ -221,7 +221,13 @@ func relevantNativeTools(
 		if selections[i].Tool != selections[j].Tool {
 			return selections[i].Tool < selections[j].Tool
 		}
-		return selections[i].Path < selections[j].Path
+		if selections[i].Path != selections[j].Path {
+			return selections[i].Path < selections[j].Path
+		}
+		if selections[i].Evidence != selections[j].Evidence {
+			return selections[i].Evidence < selections[j].Evidence
+		}
+		return selections[i].Action < selections[j].Action
 	})
 	return selections, nil
 }

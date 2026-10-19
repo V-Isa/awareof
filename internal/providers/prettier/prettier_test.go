@@ -131,7 +131,7 @@ func TestSetupSelections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []safeexec.Selection{{Tool: nodeTool}, {Tool: prettierTool}}
+	want := []safeexec.Selection{{Tool: nodeTool}, prettierRequirementSelection([]string{"3.9.9"})}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("SetupSelections() = %v, want %v", got, want)
 	}
